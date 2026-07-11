@@ -1,5 +1,5 @@
 import { mergeConfig } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import viteConfig from './vite.config.js';
 
 export default mergeConfig(
@@ -9,6 +9,7 @@ export default mergeConfig(
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
       passWithNoTests: true,
+      exclude: [...configDefaults.exclude, 'e2e/**'],
     },
   }),
 );
