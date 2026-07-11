@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# pnpm
+.pnpm-store/
+
+# editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# vite
+.vite/
