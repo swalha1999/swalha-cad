@@ -8,5 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@swalha-cad/document": "workspace:*",
+    "@swalha-cad/geometry": "workspace:*",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.1"
   }
 }
