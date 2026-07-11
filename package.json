@@ -5,6 +5,7 @@
   "description": "Browser-based parametric CAD designed for humans and AI agents.",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@11.8.0",
   "engines": {
     "node": ">=20"
   },
