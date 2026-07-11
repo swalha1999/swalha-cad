@@ -2,6 +2,7 @@ import type { CadDocumentV2 } from '@swalha-cad/document';
 import {
   buildPrimitiveMesh,
   cross,
+  evaluateDocument,
   getPosition,
   getTriangleVertexIndices,
   normalize,
@@ -9,7 +10,7 @@ import {
   transformPointBy,
   triangleCount,
 } from '@swalha-cad/geometry';
-import type { Vec3 } from '@swalha-cad/geometry';
+import type { EvaluatedBody, IndexedMesh, Vec3 } from '@swalha-cad/geometry';
 
 const HEADER_SIZE = 80;
 const COUNT_SIZE = 4;
@@ -25,23 +26,43 @@ interface Facet {
 }
 
 /**
- * Flattens every visible entity's mesh into world-space facets: each
- * triangle's vertices are baked through the entity's model transform, and
- * the facet normal is recomputed from those transformed vertices (rather
- * than reused from the mesh's stored per-vertex normals) so it stays valid
- * for STL's one-normal-per-facet format even where the source mesh uses
- * smooth per-vertex shading, such as a cylinder's side wall.
+ * The world-space mesh a body contributes and a function mapping each of its
+ * vertices to world space: an M1 primitive is tessellated and baked through
+ * its model transform, while a derived feature solid is already world-space
+ * and used verbatim under the identity.
+ */
+function worldMeshOf(body: EvaluatedBody): { mesh: IndexedMesh; toWorld: (v: Vec3) => Vec3 } {
+  if (body.geometry.kind === 'primitive') {
+    const { transform } = body.geometry;
+    return { mesh: buildPrimitiveMesh(body.geometry.primitive), toWorld: (v) => transformPointBy(transform, v) };
+  }
+  return { mesh: body.geometry.mesh, toWorld: (v) => v };
+}
+
+/**
+ * Flattens every visible evaluated body's mesh into world-space facets: each
+ * triangle's vertices are baked into world space (through the primitive's
+ * model transform, or unchanged for an already-world-space derived solid), and
+ * the facet normal is recomputed from those world vertices (rather than reused
+ * from the mesh's stored per-vertex normals) so it stays valid for STL's
+ * one-normal-per-facet format even where the source mesh uses smooth per-vertex
+ * shading, such as a cylinder's side wall.
+ *
+ * Bodies come from `evaluateDocument`, so this includes retained M1 primitives
+ * and derived solids for valid visible extrudes, and excludes non-solid
+ * sketches, hidden extrudes, and broken feature references (never stale
+ * geometry).
  */
 function collectWorldFacets(document: CadDocumentV2): Facet[] {
   const facets: Facet[] = [];
-  for (const entity of document.entities) {
-    if (!entity.visible) continue;
-    const mesh = buildPrimitiveMesh(entity.primitive);
+  for (const body of evaluateDocument(document).bodies) {
+    if (!body.visible) continue;
+    const { mesh, toWorld } = worldMeshOf(body);
     for (let t = 0; t < triangleCount(mesh); t++) {
       const [ia, ib, ic] = getTriangleVertexIndices(mesh, t);
-      const a = transformPointBy(entity.transform, getPosition(mesh, ia));
-      const b = transformPointBy(entity.transform, getPosition(mesh, ib));
-      const c = transformPointBy(entity.transform, getPosition(mesh, ic));
+      const a = toWorld(getPosition(mesh, ia));
+      const b = toWorld(getPosition(mesh, ib));
+      const c = toWorld(getPosition(mesh, ic));
       const normal = normalize(cross(subtract(b, a), subtract(c, a)));
       facets.push({ normal, vertices: [a, b, c] });
     }

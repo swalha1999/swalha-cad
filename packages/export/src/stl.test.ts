@@ -1,4 +1,11 @@
-import type { CadDocumentV2, CadEntity } from '@swalha-cad/document';
+import type {
+  CadDocumentV2,
+  CadEntity,
+  CadFeature,
+  ExtrudeFeature,
+  SketchEntity,
+  SketchFeature,
+} from '@swalha-cad/document';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -86,8 +93,42 @@ function makeEntity(overrides: Partial<CadEntity>): CadEntity {
   };
 }
 
-function makeDocument(entities: readonly CadEntity[]): CadDocumentV2 {
-  return { schemaVersion: 2, units: 'mm', entities: [...entities], features: [] };
+function makeDocument(entities: readonly CadEntity[], features: readonly CadFeature[] = []): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities: [...entities], features: [...features] };
+}
+
+function point(id: string, x: number, y: number): SketchEntity {
+  return { id, kind: 'point', x, y, construction: false };
+}
+
+function line(id: string, startId: string, endId: string): SketchEntity {
+  return { id, kind: 'line', startId, endId, construction: false };
+}
+
+/** Counter-clockwise 4x2 rectangle at the origin corner. */
+function rectangleSketch(id: string): SketchFeature {
+  return {
+    id,
+    kind: 'sketch',
+    name: id,
+    plane: 'XY',
+    entities: [
+      point('p0', 0, 0),
+      point('p1', 4, 0),
+      point('p2', 4, 2),
+      point('p3', 0, 2),
+      line('l0', 'p0', 'p1'),
+      line('l1', 'p1', 'p2'),
+      line('l2', 'p2', 'p3'),
+      line('l3', 'p3', 'p0'),
+    ],
+    constraints: [],
+    visible: true,
+  };
+}
+
+function extrude(id: string, sketchId: string, overrides: Partial<ExtrudeFeature> = {}): ExtrudeFeature {
+  return { id, kind: 'extrude', name: id, sketchId, depth: 5, direction: 'normal', visible: true, ...overrides };
 }
 
 describe('exportDocumentToBinaryStl', () => {
@@ -206,6 +247,52 @@ describe('exportDocumentToBinaryStl', () => {
     const parsed = parseBinaryStl(bytes);
     expect(parsed.triangleCount).toBe(0);
     expect(bytes.byteLength).toBe(HEADER_SIZE + 4);
+  });
+
+  it('exports a derived extrude solid alongside M1 primitives', () => {
+    const doc = makeDocument(
+      [makeEntity({ id: 'box', primitive: { kind: 'box', width: 1, height: 1, depth: 1 } })],
+      [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5 })],
+    );
+    const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
+    // Box: 12 triangles. Rectangle prism: 6 quad faces -> 12 triangles.
+    expect(parsed.triangleCount).toBe(12 + 12);
+    const bounds = boundsOf(parsed.facets);
+    // Rectangle prism reaches x=4, z=5 well beyond the unit box.
+    expect(bounds.max[0]).toBeCloseTo(4);
+    expect(bounds.max[2]).toBeCloseTo(5);
+  });
+
+  it('never exports standalone sketches — they are non-solid', () => {
+    const doc = makeDocument([], [rectangleSketch('s1')]);
+    const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
+    expect(parsed.triangleCount).toBe(0);
+  });
+
+  it('excludes a hidden extrude but keeps its visible source sketch driving other features', () => {
+    const doc = makeDocument([], [rectangleSketch('s1'), extrude('e1', 's1', { visible: false })]);
+    const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
+    expect(parsed.triangleCount).toBe(0);
+  });
+
+  it('exports a visible extrude even when its source sketch is hidden', () => {
+    const hiddenSketch: SketchFeature = { ...rectangleSketch('s1'), visible: false };
+    const doc = makeDocument([], [hiddenSketch, extrude('e1', 's1')]);
+    const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
+    expect(parsed.triangleCount).toBe(12);
+  });
+
+  it('omits a broken extrude reference from the export rather than emitting stale geometry', () => {
+    const doc = makeDocument([], [extrude('e1', 'no-such-sketch')]);
+    const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
+    expect(parsed.triangleCount).toBe(0);
+  });
+
+  it('rebuilds exported geometry deterministically when the extrusion depth changes', () => {
+    const shallow = makeDocument([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5 })]);
+    const deep = makeDocument([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 9 })]);
+    expect(boundsOf(parseBinaryStl(exportDocumentToBinaryStl(shallow)).facets).max[2]).toBeCloseTo(5);
+    expect(boundsOf(parseBinaryStl(exportDocumentToBinaryStl(deep)).facets).max[2]).toBeCloseTo(9);
   });
 
   it('matches the unit-box golden fixture on triangle count and world bounds', () => {

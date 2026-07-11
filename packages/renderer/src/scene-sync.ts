@@ -1,12 +1,13 @@
-import type { CadDocumentV2, CadEntity, Primitive, Transform } from '@swalha-cad/document';
-import { buildPrimitiveMesh } from '@swalha-cad/geometry';
-import type { Material } from 'three';
+import type { CadDocumentV2, Transform } from '@swalha-cad/document';
+import type { EvaluatedBody, MeshBounds } from '@swalha-cad/geometry';
+import { buildPrimitiveMesh, evaluateDocument, evaluatedWorldBounds } from '@swalha-cad/geometry';
+import type { BufferGeometry, Material } from 'three';
 import { FrontSide, MathUtils, Mesh, MeshStandardMaterial, Scene } from 'three';
 import { createBufferGeometry } from './mesh-adapter.js';
 
-interface SyncedEntity {
+interface SyncedBody {
   readonly object: Mesh;
-  readonly primitiveKey: string;
+  readonly buildKey: string;
 }
 
 /** New materials are created with depth testing and back-face culling explicit, not left to Three.js defaults. */
@@ -25,7 +26,7 @@ function disposeMaterial(material: Material | Material[]): void {
   }
 }
 
-function disposeSyncedEntity(synced: SyncedEntity): void {
+function disposeSyncedBody(synced: SyncedBody): void {
   synced.object.geometry.dispose();
   disposeMaterial(synced.object.material);
 }
@@ -46,78 +47,101 @@ function applyModelTransform(object: Mesh, transform: Transform): void {
   object.scale.set(sx, sy, sz);
 }
 
-function primitiveKeyOf(primitive: Primitive): string {
-  return JSON.stringify(primitive);
+/** Derived solids are already world-space, so a mesh body renders under the identity transform. */
+function applyIdentityTransform(object: Mesh): void {
+  object.position.set(0, 0, 0);
+  object.rotation.set(0, 0, 0);
+  object.scale.set(1, 1, 1);
+}
+
+function buildGeometryForBody(body: EvaluatedBody): BufferGeometry {
+  if (body.geometry.kind === 'primitive') {
+    return createBufferGeometry(buildPrimitiveMesh(body.geometry.primitive));
+  }
+  return createBufferGeometry(body.geometry.mesh);
 }
 
 /**
- * Projects a `CadDocumentV2` into a Three.js `Scene` without the document
- * ever depending on Three.js: the document stays the sole source of truth,
- * and this class only maintains a disposable rendering cache, keyed by
- * entity id, that `sync` rebuilds to match whatever document it is given.
- * Geometries and materials survive a `sync` call unchanged when an entity's
- * primitive is unchanged; they are replaced (and the old GPU resources
- * disposed) when the primitive changes, and removed/disposed when the
- * entity disappears from the document.
+ * Projects a `CadDocumentV2` into a Three.js `Scene` without the document ever
+ * depending on Three.js: the document stays the sole source of truth, and this
+ * class only maintains a disposable rendering cache, keyed by body id, that
+ * `sync` rebuilds to match whatever document it is given.
+ *
+ * Every `sync` evaluates the document (via the geometry package) into ordered
+ * bodies — retained M1 primitives plus derived solids for valid visible
+ * extrude features — and reconciles the cache against them. A body's geometry
+ * and material survive a `sync` unchanged when its `buildKey` is unchanged;
+ * they are replaced (and the old GPU resources disposed) when the geometry
+ * changes, and removed/disposed when the body disappears (a deleted entity, a
+ * hidden or newly-broken extrude). Standalone sketches are non-solid and never
+ * produce an object.
  */
 export class SceneSync {
   readonly scene: Scene;
-  private readonly synced = new Map<string, SyncedEntity>();
+  private readonly synced = new Map<string, SyncedBody>();
+  private lastBounds: MeshBounds | null = null;
 
   constructor(scene: Scene = new Scene()) {
     this.scene = scene;
   }
 
-  objectFor(entityId: string): Mesh | undefined {
-    return this.synced.get(entityId)?.object;
+  objectFor(bodyId: string): Mesh | undefined {
+    return this.synced.get(bodyId)?.object;
+  }
+
+  /** World-space bounds of the last synced document's visible bodies, or `null` when nothing visible was drawn. */
+  worldBounds(): MeshBounds | null {
+    return this.lastBounds;
   }
 
   sync(document: CadDocumentV2): void {
+    const evaluated = evaluateDocument(document);
     const seenIds = new Set<string>();
-    for (const entity of document.entities) {
-      seenIds.add(entity.id);
-      this.syncEntity(entity);
+    for (const body of evaluated.bodies) {
+      seenIds.add(body.id);
+      this.syncBody(body);
     }
     for (const [id, synced] of this.synced) {
       if (seenIds.has(id)) continue;
       this.scene.remove(synced.object);
-      disposeSyncedEntity(synced);
+      disposeSyncedBody(synced);
       this.synced.delete(id);
     }
+    this.lastBounds = evaluatedWorldBounds(evaluated);
   }
 
-  private syncEntity(entity: CadEntity): void {
-    const primitiveKey = primitiveKeyOf(entity.primitive);
-    let synced = this.synced.get(entity.id);
+  private syncBody(body: EvaluatedBody): void {
+    let synced = this.synced.get(body.id);
 
     if (!synced) {
-      const object = new Mesh(buildGeometryFor(entity.primitive), createEntityMaterial());
+      const object = new Mesh(buildGeometryForBody(body), createEntityMaterial());
       this.scene.add(object);
-      synced = { object, primitiveKey };
-      this.synced.set(entity.id, synced);
-    } else if (synced.primitiveKey !== primitiveKey) {
+      synced = { object, buildKey: body.buildKey };
+      this.synced.set(body.id, synced);
+    } else if (synced.buildKey !== body.buildKey) {
       const oldGeometry = synced.object.geometry;
-      synced.object.geometry = buildGeometryFor(entity.primitive);
+      synced.object.geometry = buildGeometryForBody(body);
       oldGeometry.dispose();
-      synced = { object: synced.object, primitiveKey };
-      this.synced.set(entity.id, synced);
+      synced = { object: synced.object, buildKey: body.buildKey };
+      this.synced.set(body.id, synced);
     }
 
-    synced.object.name = entity.name;
-    synced.object.visible = entity.visible;
-    applyModelTransform(synced.object, entity.transform);
+    synced.object.name = body.name;
+    synced.object.visible = body.visible;
+    if (body.geometry.kind === 'primitive') {
+      applyModelTransform(synced.object, body.geometry.transform);
+    } else {
+      applyIdentityTransform(synced.object);
+    }
   }
 
   /** Releases every synced GPU resource and empties the scene; the SceneSync itself may be reused afterwards. */
   dispose(): void {
     for (const synced of this.synced.values()) {
       this.scene.remove(synced.object);
-      disposeSyncedEntity(synced);
+      disposeSyncedBody(synced);
     }
     this.synced.clear();
+    this.lastBounds = null;
   }
-}
-
-function buildGeometryFor(primitive: Primitive) {
-  return createBufferGeometry(buildPrimitiveMesh(primitive));
 }

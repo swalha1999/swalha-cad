@@ -1,4 +1,13 @@
-import type { CadDocumentV2, CadEntity, Primitive, Transform } from '@swalha-cad/document';
+import type {
+  CadDocumentV2,
+  CadEntity,
+  CadFeature,
+  ExtrudeFeature,
+  Primitive,
+  SketchEntity,
+  SketchFeature,
+  Transform,
+} from '@swalha-cad/document';
 import { composeTransformMatrix } from '@swalha-cad/geometry';
 import type { Material } from 'three';
 import { DoubleSide, FrontSide, Mesh } from 'three';
@@ -22,8 +31,41 @@ function entity(id: string, primitive: Primitive, overrides: Partial<CadEntity> 
   };
 }
 
-function documentOf(entities: CadEntity[]): CadDocumentV2 {
-  return { schemaVersion: 2, units: 'mm', entities, features: [] };
+function documentOf(entities: CadEntity[], features: CadFeature[] = []): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities, features };
+}
+
+function point(id: string, x: number, y: number): SketchEntity {
+  return { id, kind: 'point', x, y, construction: false };
+}
+
+function line(id: string, startId: string, endId: string): SketchEntity {
+  return { id, kind: 'line', startId, endId, construction: false };
+}
+
+function rectangleSketch(id: string): SketchFeature {
+  return {
+    id,
+    kind: 'sketch',
+    name: id,
+    plane: 'XY',
+    entities: [
+      point('p0', 0, 0),
+      point('p1', 4, 0),
+      point('p2', 4, 2),
+      point('p3', 0, 2),
+      line('l0', 'p0', 'p1'),
+      line('l1', 'p1', 'p2'),
+      line('l2', 'p2', 'p3'),
+      line('l3', 'p3', 'p0'),
+    ],
+    constraints: [],
+    visible: true,
+  };
+}
+
+function extrude(id: string, sketchId: string, overrides: Partial<ExtrudeFeature> = {}): ExtrudeFeature {
+  return { id, kind: 'extrude', name: id, sketchId, depth: 5, direction: 'normal', visible: true, ...overrides };
 }
 
 const BOX: Primitive = { kind: 'box', width: 10, height: 20, depth: 30 };
@@ -127,6 +169,78 @@ describe('SceneSync', () => {
 
     expect(sync.scene.children).toHaveLength(0);
     expect(geometryDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds a mesh for a visible extrude feature and omits standalone sketches', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([entity('prim', BOX)], [rectangleSketch('s1'), extrude('e1', 's1')]));
+
+    // One primitive body + one derived extrude body; the sketch is non-solid.
+    expect(sync.scene.children).toHaveLength(2);
+    const derived = sync.objectFor('e1');
+    expect(derived).toBeDefined();
+    expect(sync.objectFor('s1')).toBeUndefined();
+    // Derived meshes are already world-space, so they carry the identity transform.
+    expect(derived!.position.toArray()).toEqual([0, 0, 0]);
+    const box = derived!.geometry.boundingBox ?? (derived!.geometry.computeBoundingBox(), derived!.geometry.boundingBox);
+    expect(box!.max.z).toBeCloseTo(5, 5);
+  });
+
+  it('omits a hidden extrude feature from the scene', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1', { visible: false })]));
+    expect(sync.objectFor('e1')).toBeUndefined();
+    expect(sync.scene.children).toHaveLength(0);
+  });
+
+  it('rebuilds and disposes a derived mesh when the extrusion depth changes', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5 })]));
+    const before = sync.objectFor('e1') as Mesh;
+    const geometryBefore = before.geometry;
+    const disposeSpy = vi.spyOn(geometryBefore, 'dispose');
+
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 9 })]));
+
+    const after = sync.objectFor('e1') as Mesh;
+    expect(after).toBe(before);
+    expect(after.geometry).not.toBe(geometryBefore);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a derived mesh across re-syncs when the feature is unchanged', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1')]));
+    const geometryBefore = (sync.objectFor('e1') as Mesh).geometry;
+
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1')]));
+
+    expect((sync.objectFor('e1') as Mesh).geometry).toBe(geometryBefore);
+  });
+
+  it('removes a derived mesh once its feature becomes broken, disposing its GPU resources', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1')]));
+    const mesh = sync.objectFor('e1') as Mesh;
+    const geometryDispose = vi.spyOn(mesh.geometry, 'dispose');
+
+    // Point the extrude at a sketch that no longer exists -> diagnostic, no body.
+    sync.sync(documentOf([], [extrude('e1', 's1')]));
+
+    expect(sync.objectFor('e1')).toBeUndefined();
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the world bounds of visible primitive and derived bodies, and null when empty', () => {
+    const sync = new SceneSync();
+    expect(sync.worldBounds()).toBeNull();
+
+    sync.sync(documentOf([entity('prim', BOX)], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5 })]));
+    const bounds = sync.worldBounds()!;
+    // Box (10x20x30) spans x[-5,5], z[-15,15]; rectangle prism spans x[0,4], y[0,2], z[0,5].
+    expect(bounds.min[0]).toBeCloseTo(-5, 5);
+    expect(bounds.max[1]).toBeCloseTo(10, 5);
+    expect(bounds.max[2]).toBeCloseTo(15, 5);
   });
 
   it('is a pure projection: two independent syncs of an equivalent document produce equal but distinct geometry', () => {

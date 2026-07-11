@@ -70,6 +70,18 @@ export type { ProfileTriangle } from './features/triangulate-profile.js';
 export { triangulateSimplePolygon } from './features/triangulate-profile.js';
 export type { ExtrudeOptions, ExtrudeErrorCode, ExtrudeError, ExtrudeResult } from './features/extrude.js';
 export { extrudeSketch } from './features/extrude.js';
+// Deterministic document evaluation: project a V2 document's retained M1
+// primitives and in-order features into the ordered solid bodies a renderer
+// and STL exporter consume, resolving sketch references and returning
+// structured diagnostics (never stale geometry) for broken/invalid features.
+export type {
+  EvaluatedBodyGeometry,
+  EvaluatedBody,
+  EvaluationDiagnosticCode,
+  EvaluationDiagnostic,
+  EvaluatedDocument,
+} from './features/evaluate-document.js';
+export { evaluateDocument, evaluatedWorldBounds } from './features/evaluate-document.js';
 // Scoped deterministic geometric constraint solver: solves M2's supported
 // coincidence/horizontal/vertical/distance/radius/angle constraints over point
 // coordinates and circle radii with a damped Gauss-Newton iteration, then
