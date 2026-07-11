@@ -61,4 +61,18 @@ export type { LoopSegment, SelfIntersection } from './sketch/intersections.js';
 export { segmentsIntersect, findLoopSelfIntersections } from './sketch/intersections.js';
 export type { LineLoopProfile, CircleProfile, SketchProfile, ProfileResult } from './sketch/profile.js';
 export { detectSketchProfile } from './sketch/profile.js';
+// Scoped deterministic geometric constraint solver: solves M2's supported
+// coincidence/horizontal/vertical/distance/radius/angle constraints over point
+// coordinates and circle radii with a damped Gauss-Newton iteration, then
+// reports under-constrained / fully-constrained / conflicting status.
+export type {
+  SolveStatus,
+  SolveDiagnosticCode,
+  SolveDiagnostic,
+  SolveOptions,
+  SolvedResult,
+  InvalidResult,
+  SolveResult,
+} from './sketch/constraints/types.js';
+export { solveSketch } from './sketch/constraints/solver.js';
 
