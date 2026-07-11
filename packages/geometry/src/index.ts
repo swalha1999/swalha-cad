@@ -24,9 +24,12 @@ export {
   areNormalsUnitLength,
   computeMeshBounds,
   hasZeroAreaTriangles,
+  isWatertight,
   isWindingOutward,
   triangleArea,
 } from './mesh-validation.js';
 export { buildBoxMesh } from './primitives/box.js';
 export { buildCylinderMesh } from './primitives/cylinder.js';
+export { buildLBracketMesh } from './primitives/l-bracket.js';
+export { buildPrimitiveMesh } from './build-primitive-mesh.js';
 

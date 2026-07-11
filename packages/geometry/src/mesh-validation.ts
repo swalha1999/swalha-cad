@@ -98,3 +98,32 @@ export function areNormalsOutward(mesh: IndexedMesh, origin: Vec3 = [0, 0, 0], e
   }
   return true;
 }
+
+function positionKey(p: Vec3, precision: number): string {
+  const round = (value: number) => Math.round(value / precision);
+  return `${round(p[0])}:${round(p[1])}:${round(p[2])}`;
+}
+
+/**
+ * True if every undirected edge, identified by its endpoint positions rather
+ * than vertex indices, occurs in exactly two triangles. Position-based
+ * identity is required because hard-edged meshes in this codebase duplicate
+ * vertices per face for flat shading, so a shared boundary edge never shares
+ * vertex indices across the two faces that meet at it.
+ */
+export function isWatertight(mesh: IndexedMesh, precision = 1e-5): boolean {
+  const edgeCounts = new Map<string, number>();
+  for (let t = 0; t < triangleCount(mesh); t++) {
+    const triangle = getTriangleVertexIndices(mesh, t);
+    for (let e = 0; e < 3; e++) {
+      const a = positionKey(getPosition(mesh, triangle[e]!), precision);
+      const b = positionKey(getPosition(mesh, triangle[(e + 1) % 3]!), precision);
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
+    }
+  }
+  for (const count of edgeCounts.values()) {
+    if (count !== 2) return false;
+  }
+  return true;
+}

@@ -36,7 +36,11 @@ importers:
 
   packages/export: {}
 
-  packages/geometry: {}
+  packages/geometry:
+    dependencies:
+      '@swalha-cad/document':
+        specifier: workspace:*
+        version: link:../document
 
   packages/renderer: {}
 
