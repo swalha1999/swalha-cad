@@ -247,6 +247,66 @@ describe('undo/redo', () => {
   });
 });
 
+describe('loadDocument', () => {
+  function loadedDocument() {
+    return {
+      schemaVersion: 1 as const,
+      units: 'mm' as const,
+      entities: [
+        {
+          id: 'loaded-1',
+          name: 'Loaded Box',
+          primitive: { kind: 'box' as const, width: 10, height: 10, depth: 10 },
+          transform: { translation: [0, 0, 0] as const, rotationDeg: [0, 0, 0] as const, scale: [1, 1, 1] as const },
+          visible: true,
+        },
+      ],
+    };
+  }
+
+  it('replaces the document', () => {
+    const store = createCadStore();
+
+    store.getState().loadDocument(loadedDocument());
+
+    expect(store.getState().document).toEqual(loadedDocument());
+  });
+
+  it('resets undo/redo history so the prior document cannot be undone back to', () => {
+    const store = createCadStore();
+    store.getState().createEntity('box');
+    expect(store.getState().canUndo).toBe(true);
+
+    store.getState().loadDocument(loadedDocument());
+
+    expect(store.getState().canUndo).toBe(false);
+    expect(store.getState().canRedo).toBe(false);
+    store.getState().undo();
+    expect(store.getState().document).toEqual(loadedDocument());
+  });
+
+  it('clears the current selection', () => {
+    const store = createCadStore();
+    const id = store.getState().document.entities[0]!.id;
+    store.getState().selectEntity(id);
+
+    store.getState().loadDocument(loadedDocument());
+
+    expect(store.getState().selectedEntityId).toBeNull();
+  });
+
+  it('discards any pending redo history from before the load', () => {
+    const store = createCadStore();
+    store.getState().createEntity('box');
+    store.getState().undo();
+    expect(store.getState().canRedo).toBe(true);
+
+    store.getState().loadDocument(loadedDocument());
+
+    expect(store.getState().canRedo).toBe(false);
+  });
+});
+
 describe('selectSelectedEntity', () => {
   it('returns undefined when nothing is selected', () => {
     const store = createCadStore();

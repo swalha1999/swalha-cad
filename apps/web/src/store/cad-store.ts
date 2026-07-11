@@ -31,6 +31,7 @@ export interface CadStoreState {
   setCameraProjection: (projection: CameraProjection) => void;
   createEntity: (kind: Primitive['kind']) => string;
   updateEntity: (id: string, patch: CadEntityPatch) => boolean;
+  loadDocument: (document: CadDocumentV1) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -161,6 +162,17 @@ export function createCadStore(document: CadDocumentV1 = createSeedDocument(), o
         canRedo: computeCanRedo(nextHistory),
       });
       return true;
+    },
+
+    /** Replaces the document with a freshly loaded one, discarding prior undo/redo history and selection. */
+    loadDocument: (document) => {
+      set({
+        document,
+        history: createHistory(document),
+        canUndo: false,
+        canRedo: false,
+        selectedEntityId: null,
+      });
     },
 
     undo: () => {
