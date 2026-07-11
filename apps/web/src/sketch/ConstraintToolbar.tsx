@@ -11,13 +11,15 @@ interface ConstraintButton {
   kind: ConstraintKind;
   label: string;
   icon: ComponentType;
+  /** Single-key shortcut surfaced in the tooltip and via aria-keyshortcuts. */
+  shortcut?: string;
 }
 
 const CONSTRAINTS: ConstraintButton[] = [
   { kind: 'coincident', label: 'Coincident', icon: Link2 },
   { kind: 'horizontal', label: 'Horizontal', icon: MoveHorizontal },
   { kind: 'vertical', label: 'Vertical', icon: MoveVertical },
-  { kind: 'distance', label: 'Distance', icon: Ruler },
+  { kind: 'distance', label: 'Distance', icon: Ruler, shortcut: 'D' },
   { kind: 'radius', label: 'Radius', icon: Diameter },
   { kind: 'angle', label: 'Angle', icon: Triangle },
 ];
@@ -50,9 +52,15 @@ export function ConstraintToolbar() {
 
   return (
     <div className="constraint-toolbar" role="toolbar" aria-label="Constraints">
-      {CONSTRAINTS.map(({ kind, label, icon: Icon }) => (
-        <Tooltip key={kind} content={label}>
-          <IconButton aria-label={`${label} constraint`} disabled={!eligibility[kind]} icon={<Icon />} onClick={() => handleApply(kind)} />
+      {CONSTRAINTS.map(({ kind, label, icon: Icon, shortcut }) => (
+        <Tooltip key={kind} content={shortcut ? `${label} (${shortcut})` : label}>
+          <IconButton
+            aria-label={`${label} constraint`}
+            aria-keyshortcuts={shortcut}
+            disabled={!eligibility[kind]}
+            icon={<Icon />}
+            onClick={() => handleApply(kind)}
+          />
         </Tooltip>
       ))}
     </div>

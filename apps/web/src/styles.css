@@ -869,6 +869,48 @@ body {
   dominant-baseline: middle;
 }
 
+/* Live Distance/Dimension tool annotation and inline value editor. */
+.sketch-overlay__dimension-witness {
+  stroke: var(--accent, #2563eb);
+  stroke-width: 0.75;
+  stroke-dasharray: 2 2;
+  stroke-opacity: 0.7;
+}
+.sketch-overlay__dimension-line {
+  stroke: var(--accent, #2563eb);
+  stroke-width: 1;
+}
+.dimension-prompt {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--shell-panel, #fff);
+  border: 1px solid var(--accent, #2563eb);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  font-size: 13px;
+}
+.dimension-prompt__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dimension-prompt__input {
+  width: 64px;
+  padding: 2px 4px;
+  border: 1px solid var(--shell-border, #cbd5e1);
+  border-radius: 4px;
+  font: inherit;
+}
+.dimension-prompt__unit {
+  color: var(--muted-foreground, #64748b);
+}
+.dimension-prompt__error {
+  color: var(--destructive, #dc2626);
+  font-size: 11px;
+}
+
 .viewport__canvas {
   display: block;
   width: 100%;

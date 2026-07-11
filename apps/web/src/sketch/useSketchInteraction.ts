@@ -65,9 +65,10 @@ function buildSnapContext(entities: readonly SketchEntity[]): SnapContext {
  * deterministic tool state machine: pointer moves/clicks resolve against the
  * user's independent snap settings (holding Alt bypasses every snap for exact
  * free placement) and dispatch tool events; double-click/Enter finish a chain and
- * Escape cancels the active step. Single-key shortcuts pick a tool (P/L/R/C) or
- * toggle the grid (G). All committing happens inside the store, so every action
- * still flows through the feature-command history.
+ * Escape cancels the active step (or a pending dimension). Single-key shortcuts
+ * pick a tool (P/L/R/C), start the Distance/Dimension tool (D), or toggle the
+ * grid (G). All committing happens inside the store, so every action still flows
+ * through the feature-command history.
  */
 export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
   const storeApi = useCadStoreApi();
@@ -123,6 +124,11 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
 
       if (event.key === 'Escape') {
         event.preventDefault();
+        // A pending dimension owns Escape first (cancel without mutation); otherwise cancel the active tool step.
+        if (state.sketch.dimension) {
+          state.cancelDimension();
+          return;
+        }
         state.dispatchSketchEvent({ type: 'cancel' });
         return;
       }
@@ -142,6 +148,10 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
       if (tool) {
         event.preventDefault();
         state.setSketchTool(state.sketch.tool === tool ? null : tool);
+      } else if (key === 'd') {
+        // Onshape-style Distance/Dimension tool: context-sensitive on the current selection.
+        event.preventDefault();
+        state.startDimension();
       } else if (key === 'g') {
         event.preventDefault();
         state.setGridVisible(!state.gridVisible);

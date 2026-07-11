@@ -5,6 +5,9 @@ import type { SolveStatus } from '@swalha-cad/geometry';
 import { useCadStore } from '../store/cad-store-context.js';
 import { selectActiveSketch } from '../store/cad-store.js';
 import { ConstraintGlyphs } from './ConstraintGlyphs.js';
+import { dimensionAnnotation } from './dimension.js';
+import type { DimensionAnnotation } from './dimension.js';
+import { DimensionPrompt } from './DimensionPrompt.js';
 import { toolPreview } from './preview.js';
 import type { PreviewGeometry } from './preview.js';
 import type { SnapKind, Vec2 } from './tools/types.js';
@@ -168,6 +171,36 @@ function Preview({ preview }: { preview: PreviewGeometry }) {
   );
 }
 
+/** How far (mm) the dimension line is offset from the measured segment, so witness lines are legible. */
+const DIMENSION_OFFSET_MM = 10;
+
+/**
+ * The live dimension annotation drawn while the Distance tool awaits a value: a
+ * witness line from each measured point out to an offset dimension line, plus the
+ * inline numeric editor anchored at its midpoint (via a `foreignObject` so it
+ * tracks the annotation in sketch space). Purely a preview — nothing is committed
+ * until the editor's value is entered.
+ */
+function DimensionOverlay({ annotation, measured }: { annotation: DimensionAnnotation; measured: number }) {
+  const a = planeToSvg(annotation.a.x, annotation.a.y);
+  const b = planeToSvg(annotation.b.x, annotation.b.y);
+  const aOff = planeToSvg(annotation.aOff.x, annotation.aOff.y);
+  const bOff = planeToSvg(annotation.bOff.x, annotation.bOff.y);
+  const mid = planeToSvg(annotation.mid.x, annotation.mid.y);
+  const width = 132;
+  const height = 64;
+  return (
+    <g className="sketch-overlay__dimension" data-testid="dimension-annotation">
+      <line x1={a.x} y1={a.y} x2={aOff.x} y2={aOff.y} className="sketch-overlay__dimension-witness" aria-hidden="true" />
+      <line x1={b.x} y1={b.y} x2={bOff.x} y2={bOff.y} className="sketch-overlay__dimension-witness" aria-hidden="true" />
+      <line x1={aOff.x} y1={aOff.y} x2={bOff.x} y2={bOff.y} className="sketch-overlay__dimension-line" aria-hidden="true" />
+      <foreignObject x={mid.x + 8} y={mid.y - height / 2} width={width} height={height} className="sketch-overlay__dimension-editor">
+        <DimensionPrompt measured={measured} />
+      </foreignObject>
+    </g>
+  );
+}
+
 /** Strong object snaps get a larger ring; grid/free/inference a smaller one. */
 const STRONG_SNAP_KINDS = new Set<SnapKind>(['endpoint', 'center', 'intersection', 'midpoint', 'origin']);
 
@@ -200,12 +233,18 @@ export function SketchOverlay() {
   const solve = useCadStore((state) => state.sketchSolve);
   const gridVisible = useCadStore((state) => state.gridVisible);
   const toggleSelection = useCadStore((state) => state.toggleSketchEntitySelection);
+  const dimensionPick = useCadStore((state) => state.dimensionPick);
 
   const entities = sketch?.entities ?? [];
   const preview = toolPreview(session?.toolState ?? null, session?.cursor ?? null);
   const selectable = !session?.tool;
   const status = solve?.status ?? 'under-constrained';
   const selectionSet = new Set(selection);
+  const dimension = session?.dimension ?? null;
+  // While the Distance tool is picking geometry, entity clicks feed the dimension; otherwise they toggle selection.
+  const onEntityClick = dimension?.phase === 'picking' ? dimensionPick : toggleSelection;
+  const annotation =
+    sketch && dimension?.phase === 'awaiting' ? dimensionAnnotation(sketch, dimension, DIMENSION_OFFSET_MM) : null;
 
   return (
     <svg
@@ -221,9 +260,10 @@ export function SketchOverlay() {
     >
       {gridVisible ? <Grid /> : null}
       <Axes />
-      <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={toggleSelection} />
+      <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={onEntityClick} />
       {sketch ? <ConstraintGlyphs sketch={sketch} /> : null}
       <Preview preview={preview} />
+      {annotation && dimension?.phase === 'awaiting' ? <DimensionOverlay annotation={annotation} measured={dimension.measured} /> : null}
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
     </svg>
   );

@@ -99,4 +99,41 @@ describe('SketchWorkspace', () => {
     fireEvent.keyDown(window, { key: 'r', ctrlKey: true });
     expect(store.getState().sketch?.tool).toBeNull();
   });
+
+  it('starts the Distance/Dimension tool with the D shortcut', () => {
+    const store = renderWorkspace();
+
+    fireEvent.keyDown(window, { key: 'd' });
+
+    expect(store.getState().sketch?.dimension).toEqual({ phase: 'picking', points: [] });
+  });
+
+  it('cancels an active dimension with Escape', () => {
+    const store = renderWorkspace();
+    fireEvent.keyDown(window, { key: 'd' });
+    expect(store.getState().sketch?.dimension).not.toBeNull();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(store.getState().sketch?.dimension).toBeNull();
+  });
+
+  it('does not start the Distance tool while a text input owns focus (focus guard)', () => {
+    const store = createCadStore();
+    store.getState().enterSketch('XY');
+    render(
+      <CadStoreProvider store={store}>
+        <>
+          <SketchWorkspace />
+          <input aria-label="probe" />
+        </>
+      </CadStoreProvider>,
+    );
+    const probe = screen.getByLabelText('probe');
+    probe.focus();
+
+    fireEvent.keyDown(probe, { key: 'd' });
+
+    expect(store.getState().sketch?.dimension).toBeNull();
+  });
 });

@@ -29,12 +29,32 @@ import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
 import { removeSketchEntities } from '../sketch/delete.js';
 import type { NewConstraint } from '../sketch/constraint-actions.js';
+import { pickForDimension, resolveFromSelection } from '../sketch/dimension.js';
 import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
 import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
 
 export type CameraProjection = 'perspective' | 'orthographic';
+
+/**
+ * The transient state of the Onshape-style Distance/Dimension tool while it owns
+ * the sketch. `picking` is the command-first phase collecting geometry (a line,
+ * or the first of two points); `awaiting` holds a resolved point pair and its
+ * current measured length (mm) while the inline numeric editor is open. Purely
+ * interaction state — a value is only committed (through history) on Enter.
+ */
+export type DimensionState =
+  | { phase: 'picking'; points: string[] }
+  | { phase: 'awaiting'; pointA: string; pointB: string; measured: number };
+
+/** The result of committing a dimension value, so the inline editor can react (apply and close, or show why it was rejected). */
+export interface DimensionOutcome {
+  applied: boolean;
+  reason: 'applied' | 'invalid' | 'conflict' | 'redundant' | 'not-ready';
+  status: SolveStatus | null;
+  message: string | null;
+}
 
 /**
  * The live state of an in-progress sketch on an origin plane. `featureId` names
@@ -52,6 +72,8 @@ export interface SketchSession {
   construction: boolean;
   cursor: Vec2 | null;
   cursorSnap: SnapKind | null;
+  /** Non-null while the Distance/Dimension tool owns the sketch (see {@link DimensionState}). */
+  dimension: DimensionState | null;
 }
 
 /**
@@ -154,6 +176,25 @@ export interface CadStoreState {
   clearSketchSelection: () => void;
   /** Selects (or clears) the constraint whose dimension the properties panel edits. */
   selectConstraint: (id: string | null) => void;
+  /**
+   * Activates the Distance/Dimension tool (the D shortcut). A distance-eligible
+   * selection (one line or two points) jumps straight to the inline value
+   * editor; otherwise the tool waits to pick geometry. Toggles off if already
+   * active. Deactivates any drawing tool. No-op outside sketch mode.
+   */
+  startDimension: () => void;
+  /** Feeds a clicked entity id to the dimension tool's picking phase (a line, or one of two points). No-op unless picking. */
+  dimensionPick: (id: string) => void;
+  /**
+   * Commits the awaiting dimension's typed value as a driving distance
+   * constraint through a `feature.update` command, re-solving and updating
+   * geometry/history. Rejects (without mutating) a non-finite/non-positive,
+   * conflicting, or already-constrained (redundant) value, leaving the editor
+   * open so the value can be corrected.
+   */
+  commitDimension: (value: number) => DimensionOutcome;
+  /** Cancels the active dimension operation without mutating the document, returning to selection. */
+  cancelDimension: () => void;
   /** Adds a constraint via a `feature.update` command, re-solving and updating geometry/status deterministically. */
   applyConstraint: (constraint: NewConstraint) => ConstraintOutcome;
   /** Edits a dimensional constraint's value, validating it and re-solving through history. */
@@ -549,7 +590,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: null,
         // Look orthographically straight down the plane normal for a true 2D workspace.
         cameraProjection: 'orthographic',
-        sketch: { featureId, plane, tool: null, toolState: null, construction: false, cursor: null, cursorSnap: null },
+        sketch: { featureId, plane, tool: null, toolState: null, construction: false, cursor: null, cursorSnap: null, dimension: null },
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
@@ -561,8 +602,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       const session = get().sketch;
       if (!session) return;
       // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
+      // Either way the Distance/Dimension tool no longer owns the sketch.
       set({
-        sketch: { ...session, tool, toolState: tool ? initialToolState(tool) : null },
+        sketch: { ...session, tool, toolState: tool ? initialToolState(tool) : null, dimension: null },
         ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
     },
@@ -643,6 +685,105 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     clearSketchSelection: () => set({ sketchSelection: [] }),
 
     selectConstraint: (id) => set({ selectedConstraintId: id }),
+
+    startDimension: () => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch) return;
+      // Pressing D again while active toggles the tool off, back to selection.
+      if (session.dimension) {
+        set({ sketch: { ...session, dimension: null } });
+        return;
+      }
+      const resolved = resolveFromSelection(sketch, state.sketchSelection);
+      const dimension: DimensionState = resolved
+        ? { phase: 'awaiting', pointA: resolved.pointA, pointB: resolved.pointB, measured: resolved.measured }
+        : { phase: 'picking', points: [] };
+      set({
+        sketch: { ...session, tool: null, toolState: null, dimension },
+        sketchSelection: [],
+        selectedConstraintId: null,
+      });
+    },
+
+    dimensionPick: (id) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.dimension?.phase !== 'picking') return;
+      const result = pickForDimension(sketch, session.dimension.points, id);
+      if (!result) return;
+      const dimension: DimensionState =
+        result.kind === 'awaiting'
+          ? { phase: 'awaiting', pointA: result.dimension.pointA, pointB: result.dimension.pointB, measured: result.dimension.measured }
+          : { phase: 'picking', points: result.points };
+      set({ sketch: { ...session, dimension } });
+    },
+
+    commitDimension: (value) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.dimension?.phase !== 'awaiting') {
+        return { applied: false, reason: 'not-ready', status: null, message: 'No dimension is awaiting a value.' };
+      }
+      const { pointA, pointB } = session.dimension;
+      if (!Number.isFinite(value) || value <= 0) {
+        return { applied: false, reason: 'invalid', status: null, message: 'Enter a positive length in millimetres.' };
+      }
+      const hasBothPoints =
+        sketch.entities.some((entity) => entity.id === pointA) && sketch.entities.some((entity) => entity.id === pointB);
+      if (!hasBothPoints) {
+        return { applied: false, reason: 'invalid', status: null, message: 'The dimensioned geometry no longer exists.' };
+      }
+
+      // Compare degrees of freedom before/after to detect a redundant driving dimension:
+      // an independent distance removes one DOF, a redundant one leaves the count unchanged.
+      const anchorBefore = firstAnchorPointId(sketch);
+      const before = solveSketch(sketch, anchorBefore ? { anchoredPointIds: [anchorBefore] } : {});
+      const dofBefore = before.ok ? before.remainingDof : null;
+
+      const constraint: SketchConstraint = { id: createId(), kind: 'distance', pointA, pointB, value };
+      const candidate: SketchFeature = { ...sketch, constraints: [...sketch.constraints, constraint] };
+      const anchor = firstAnchorPointId(candidate);
+      const result = solveSketch(candidate, anchor ? { anchoredPointIds: [anchor] } : {});
+
+      if (!result.ok) {
+        return { applied: false, reason: 'invalid', status: null, message: firstDiagnosticMessage(result.diagnostics) ?? 'Value could not be applied.' };
+      }
+      if (result.status === 'conflicting') {
+        return {
+          applied: false,
+          reason: 'conflict',
+          status: 'conflicting',
+          message: firstDiagnosticMessage(result.diagnostics) ?? 'This dimension conflicts with the existing constraints.',
+        };
+      }
+      if (dofBefore !== null && result.remainingDof >= dofBefore) {
+        return { applied: false, reason: 'redundant', status: result.status, message: 'This distance is already fully constrained.' };
+      }
+
+      const patch = { constraints: candidate.constraints, entities: result.sketch.entities };
+      const nextHistory = applyCommandToHistory(state.history, { type: 'feature.update', id: sketch.id, patch });
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSolve: { status: result.status, remainingDof: result.remainingDof, diagnostics: result.diagnostics },
+        selectedConstraintId: constraint.id,
+        sketch: { ...session, dimension: null },
+        sketchSelection: [],
+      });
+      return { applied: true, reason: 'applied', status: result.status, message: null };
+    },
+
+    cancelDimension: () => {
+      const session = get().sketch;
+      if (!session || !session.dimension) return;
+      set({ sketch: { ...session, dimension: null } });
+    },
 
     applyConstraint: (constraint) => {
       const state = get();

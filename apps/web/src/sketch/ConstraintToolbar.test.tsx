@@ -92,6 +92,11 @@ describe('ConstraintToolbar', () => {
     expect(store.getState().sketchSelection).toEqual([]);
   });
 
+  it('advertises the D shortcut on the Distance command for discovery', () => {
+    renderToolbar(sketchStore());
+    expect(screen.getByRole('button', { name: 'Distance constraint' })).toHaveAttribute('aria-keyshortcuts', 'D');
+  });
+
   it('applies a distance dimension seeded with the measured length', () => {
     const store = sketchStore();
     store.getState().setSketchSelection([lineIds(store)[0]!]);
