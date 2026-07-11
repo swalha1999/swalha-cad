@@ -1,1 +1,1 @@
-export {};
+export { exportDocumentToBinaryStl } from './stl.js';

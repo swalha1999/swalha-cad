@@ -1,5 +1,5 @@
 export type { Vec3 } from './math/vec3.js';
-export { add, cross, dot, length, normalize, scale } from './math/vec3.js';
+export { add, cross, dot, length, normalize, scale, subtract } from './math/vec3.js';
 export type { Mat4 } from './math/mat4.js';
 export {
   fromRotationDeg,
