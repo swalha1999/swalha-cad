@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 
 export const DOCUMENT_FILENAME = 'design.swcad.json';
 export const STL_FILENAME = 'design.stl';
@@ -13,7 +13,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function downloadCadDocument(cadDocument: CadDocumentV1): void {
+export function downloadCadDocument(cadDocument: CadDocumentV2): void {
   const json = JSON.stringify(cadDocument, null, 2);
   downloadBlob(new Blob([json], { type: 'application/json' }), DOCUMENT_FILENAME);
 }

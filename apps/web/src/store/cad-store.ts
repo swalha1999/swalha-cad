@@ -1,6 +1,6 @@
 import type {
   CadCommand,
-  CadDocumentV1,
+  CadDocumentV2,
   CadEntity,
   CadEntityPatch,
   CommandHistory,
@@ -21,7 +21,7 @@ import { createStore } from 'zustand/vanilla';
 export type CameraProjection = 'perspective' | 'orthographic';
 
 export interface CadStoreState {
-  document: CadDocumentV1;
+  document: CadDocumentV2;
   history: CommandHistory;
   selectedEntityId: string | null;
   cameraProjection: CameraProjection;
@@ -31,7 +31,7 @@ export interface CadStoreState {
   setCameraProjection: (projection: CameraProjection) => void;
   createEntity: (kind: Primitive['kind']) => string;
   updateEntity: (id: string, patch: CadEntityPatch) => boolean;
-  loadDocument: (document: CadDocumentV1) => void;
+  loadDocument: (document: CadDocumentV2) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -61,7 +61,7 @@ function nextEntityName(entities: readonly CadEntity[], base: string): string {
 }
 
 /** Drops a selection that no longer refers to an entity in the document, e.g. after an undo. */
-function reconcileSelection(document: CadDocumentV1, selectedEntityId: string | null): string | null {
+function reconcileSelection(document: CadDocumentV2, selectedEntityId: string | null): string | null {
   if (selectedEntityId === null) return null;
   return document.entities.some((entity) => entity.id === selectedEntityId) ? selectedEntityId : null;
 }
@@ -71,9 +71,9 @@ function reconcileSelection(document: CadDocumentV1, selectedEntityId: string | 
  * needs a small non-empty document to exercise the scene tree, viewport,
  * and properties panel without an empty-state dead end.
  */
-function createSeedDocument(): CadDocumentV1 {
+function createSeedDocument(): CadDocumentV2 {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     units: 'mm',
     entities: [
       {
@@ -98,6 +98,7 @@ function createSeedDocument(): CadDocumentV1 {
         visible: true,
       },
     ],
+    features: [],
   };
 }
 
@@ -107,7 +108,7 @@ export interface CadStoreOptions {
 }
 
 /** Vanilla (framework-agnostic) store factory so tests can create isolated instances. */
-export function createCadStore(document: CadDocumentV1 = createSeedDocument(), options: CadStoreOptions = {}) {
+export function createCadStore(document: CadDocumentV2 = createSeedDocument(), options: CadStoreOptions = {}) {
   const createId = options.createId ?? (() => crypto.randomUUID());
 
   return createStore<CadStoreState>((set, get) => ({

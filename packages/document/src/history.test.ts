@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommandToHistory, canRedo, canUndo, createHistory, redo, undo } from './history.js';
-import type { CadDocumentV1, CadEntity } from './types.js';
+import type { CadDocumentV2, CadEntity } from './types.js';
 
 function boxEntity(id: string): CadEntity {
   return {
@@ -16,8 +16,8 @@ function boxEntity(id: string): CadEntity {
   };
 }
 
-function emptyDocument(): CadDocumentV1 {
-  return { schemaVersion: 1, units: 'mm', entities: [] };
+function emptyDocument(): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities: [], features: [] };
 }
 
 describe('command history', () => {

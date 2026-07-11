@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import type { CadCommand, CadDocumentV1 } from '@swalha-cad/document';
+import type { CadCommand, CadDocumentV2 } from '@swalha-cad/document';
 import { applyCommand, parseCadDocument, UnknownEntityError } from '@swalha-cad/document';
 
-const EMPTY_DOCUMENT: CadDocumentV1 = { schemaVersion: 1, units: 'mm', entities: [] };
+const EMPTY_DOCUMENT: CadDocumentV2 = { schemaVersion: 2, units: 'mm', entities: [], features: [] };
 
 /** Structured error for session-level failures (startup validation, unknown entities). */
 export class DocumentSessionError extends Error {
@@ -32,11 +32,11 @@ export interface DocumentSessionOptions {
  * file, then rename) after every successful command.
  */
 export class DocumentSession {
-  private document: CadDocumentV1;
+  private document: CadDocumentV2;
   private readonly filePath: string;
   private readonly createId: () => string;
 
-  private constructor(filePath: string, document: CadDocumentV1, createId: () => string) {
+  private constructor(filePath: string, document: CadDocumentV2, createId: () => string) {
     this.filePath = filePath;
     this.document = document;
     this.createId = createId;
@@ -78,7 +78,7 @@ export class DocumentSession {
     return new DocumentSession(filePath, result.data, createId);
   }
 
-  getDocument(): CadDocumentV1 {
+  getDocument(): CadDocumentV2 {
     return this.document;
   }
 
@@ -87,8 +87,8 @@ export class DocumentSession {
   }
 
   /** Applies `command` through the shared reducer and persists the result before resolving. */
-  async applyCommand(command: CadCommand): Promise<CadDocumentV1> {
-    let next: CadDocumentV1;
+  async applyCommand(command: CadCommand): Promise<CadDocumentV2> {
+    let next: CadDocumentV2;
     try {
       next = applyCommand(this.document, command);
     } catch (error) {

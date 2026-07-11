@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Object3D } from 'three';
 import type { MeshStandardMaterial, Object3D as Object3DType, PerspectiveCamera } from 'three';
@@ -79,9 +79,9 @@ vi.mock('./create-transform-controls.js', () => ({
 
 const { createViewportScene } = await import('./create-viewport-scene.js');
 
-function seedDocument(): CadDocumentV1 {
+function seedDocument(): CadDocumentV2 {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     units: 'mm',
     entities: [
       {
@@ -99,6 +99,7 @@ function seedDocument(): CadDocumentV1 {
         visible: true,
       },
     ],
+    features: [],
   };
 }
 

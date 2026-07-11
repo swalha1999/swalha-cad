@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV1, CadDocumentV2 } from '@swalha-cad/document';
 import { openCadDocumentFile } from './open-document.js';
 
-const VALID_DOCUMENT: CadDocumentV1 = {
+const VALID_V1_DOCUMENT: CadDocumentV1 = {
   schemaVersion: 1,
   units: 'mm',
   entities: [
@@ -16,15 +16,23 @@ const VALID_DOCUMENT: CadDocumentV1 = {
   ],
 };
 
+const VALID_V2_DOCUMENT: CadDocumentV2 = { ...VALID_V1_DOCUMENT, schemaVersion: 2, features: [] };
+
 function jsonFile(contents: string, name = 'design.swcad.json'): File {
   return new File([contents], name, { type: 'application/json' });
 }
 
 describe('openCadDocumentFile', () => {
-  it('accepts a valid V1 document', async () => {
-    const result = await openCadDocumentFile(jsonFile(JSON.stringify(VALID_DOCUMENT)));
+  it('accepts a valid V1 document and migrates it to canonical V2', async () => {
+    const result = await openCadDocumentFile(jsonFile(JSON.stringify(VALID_V1_DOCUMENT)));
 
-    expect(result).toEqual({ success: true, document: VALID_DOCUMENT });
+    expect(result).toEqual({ success: true, document: VALID_V2_DOCUMENT });
+  });
+
+  it('accepts a valid V2 document unchanged', async () => {
+    const result = await openCadDocumentFile(jsonFile(JSON.stringify(VALID_V2_DOCUMENT)));
+
+    expect(result).toEqual({ success: true, document: VALID_V2_DOCUMENT });
   });
 
   it('rejects text that is not valid JSON', async () => {
@@ -43,7 +51,7 @@ describe('openCadDocumentFile', () => {
 
   it('rejects an unknown schema version', async () => {
     const result = await openCadDocumentFile(
-      jsonFile(JSON.stringify({ schemaVersion: 2, units: 'mm', entities: [] })),
+      jsonFile(JSON.stringify({ schemaVersion: 3, units: 'mm', entities: [] })),
     );
 
     expect(result.success).toBe(false);
@@ -51,10 +59,10 @@ describe('openCadDocumentFile', () => {
 
   it('rejects a document with an invalid entity, e.g. a non-positive dimension', async () => {
     const invalid: CadDocumentV1 = {
-      ...VALID_DOCUMENT,
+      ...VALID_V1_DOCUMENT,
       entities: [
         {
-          ...VALID_DOCUMENT.entities[0]!,
+          ...VALID_V1_DOCUMENT.entities[0]!,
           primitive: { kind: 'box', width: 0, height: 30, depth: 20 },
         },
       ],

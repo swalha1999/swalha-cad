@@ -6,7 +6,7 @@ describe('createCadStore', () => {
     const store = createCadStore();
     const state = store.getState();
 
-    expect(state.document.schemaVersion).toBe(1);
+    expect(state.document.schemaVersion).toBe(2);
     expect(state.document.units).toBe('mm');
     expect(state.document.entities.length).toBeGreaterThan(0);
     expect(state.selectedEntityId).toBeNull();
@@ -97,7 +97,7 @@ describe('createEntity', () => {
   });
 
   it('disambiguates the default name when one already exists', () => {
-    const store = createCadStore({ schemaVersion: 1, units: 'mm', entities: [] });
+    const store = createCadStore({ schemaVersion: 2, units: 'mm', entities: [], features: [] });
 
     store.getState().createEntity('box');
     store.getState().createEntity('box');
@@ -107,7 +107,7 @@ describe('createEntity', () => {
   });
 
   it('assigns each new entity a unique id', () => {
-    const store = createCadStore({ schemaVersion: 1, units: 'mm', entities: [] });
+    const store = createCadStore({ schemaVersion: 2, units: 'mm', entities: [], features: [] });
 
     const first = store.getState().createEntity('box');
     const second = store.getState().createEntity('box');
@@ -250,7 +250,7 @@ describe('undo/redo', () => {
 describe('loadDocument', () => {
   function loadedDocument() {
     return {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       units: 'mm' as const,
       entities: [
         {
@@ -261,6 +261,7 @@ describe('loadDocument', () => {
           visible: true,
         },
       ],
+      features: [],
     };
   }
 

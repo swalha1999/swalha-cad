@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { parseCadDocument } from '@swalha-cad/document';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -116,7 +116,7 @@ describe('MCP agent workflow (real stdio subprocess)', () => {
       // independent of the live MCP session, so it should be readable and valid on disk now.
       const persisted = parseCadDocument(JSON.parse(await readFile(documentPath, 'utf-8')) as unknown);
       expect(persisted.success).toBe(true);
-      const persistedDocument = (persisted as { success: true; data: CadDocumentV1 }).data;
+      const persistedDocument = (persisted as { success: true; data: CadDocumentV2 }).data;
       expect(persistedDocument.entities).toHaveLength(3);
       const persistedBracket = persistedDocument.entities.find((entity) => entity.id === bracketId);
       expect(persistedBracket?.transform.translation).toEqual([100, 0, -25]);

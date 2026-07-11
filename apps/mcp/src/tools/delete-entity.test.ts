@@ -65,6 +65,6 @@ describe('delete_entity tool', () => {
     expect(result.isError).toBe(true);
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
     expect(payload.error.code).toBe('entity_not_found');
-    expect(session.getDocument()).toEqual(SEED);
+    expect(session.getDocument()).toEqual({ ...SEED, schemaVersion: 2, features: [] });
   });
 });

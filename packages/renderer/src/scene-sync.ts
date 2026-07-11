@@ -1,4 +1,4 @@
-import type { CadDocumentV1, CadEntity, Primitive, Transform } from '@swalha-cad/document';
+import type { CadDocumentV2, CadEntity, Primitive, Transform } from '@swalha-cad/document';
 import { buildPrimitiveMesh } from '@swalha-cad/geometry';
 import type { Material } from 'three';
 import { FrontSide, MathUtils, Mesh, MeshStandardMaterial, Scene } from 'three';
@@ -51,7 +51,7 @@ function primitiveKeyOf(primitive: Primitive): string {
 }
 
 /**
- * Projects a `CadDocumentV1` into a Three.js `Scene` without the document
+ * Projects a `CadDocumentV2` into a Three.js `Scene` without the document
  * ever depending on Three.js: the document stays the sole source of truth,
  * and this class only maintains a disposable rendering cache, keyed by
  * entity id, that `sync` rebuilds to match whatever document it is given.
@@ -72,7 +72,7 @@ export class SceneSync {
     return this.synced.get(entityId)?.object;
   }
 
-  sync(document: CadDocumentV1): void {
+  sync(document: CadDocumentV2): void {
     const seenIds = new Set<string>();
     for (const entity of document.entities) {
       seenIds.add(entity.id);

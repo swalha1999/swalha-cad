@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, UnknownEntityError } from './reducer.js';
-import type { CadDocumentV1, CadEntity } from './types.js';
+import { applyCommand, UnknownEntityError, UnknownFeatureError } from './reducer.js';
+import type { CadDocumentV2, CadEntity, ExtrudeFeature, SketchFeature } from './types.js';
 
 function boxEntity(id: string): CadEntity {
   return {
@@ -16,11 +16,38 @@ function boxEntity(id: string): CadEntity {
   };
 }
 
-function emptyDocument(): CadDocumentV1 {
-  return { schemaVersion: 1, units: 'mm', entities: [] };
+function circleSketch(id: string): SketchFeature {
+  return {
+    id,
+    kind: 'sketch',
+    name: 'Sketch 1',
+    plane: 'XY',
+    entities: [
+      { id: 'p1', kind: 'point', x: 0, y: 0, construction: false },
+      { id: 'circ1', kind: 'circle', centerId: 'p1', radius: 5, construction: false },
+    ],
+    constraints: [{ id: 'c1', kind: 'radius', circleId: 'circ1', value: 5 }],
+    visible: true,
+  };
 }
 
-describe('applyCommand', () => {
+function extrudeFeature(id: string, sketchId: string): ExtrudeFeature {
+  return {
+    id,
+    kind: 'extrude',
+    name: 'Extrude 1',
+    sketchId,
+    depth: 20,
+    direction: 'normal',
+    visible: true,
+  };
+}
+
+function emptyDocument(): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities: [], features: [] };
+}
+
+describe('applyCommand — M1 entity commands', () => {
   it('creates a new entity', () => {
     const document = emptyDocument();
     const entity = boxEntity('entity-1');
@@ -42,7 +69,7 @@ describe('applyCommand', () => {
   });
 
   it('updates an existing entity with a partial patch', () => {
-    const document: CadDocumentV1 = { ...emptyDocument(), entities: [boxEntity('entity-1')] };
+    const document: CadDocumentV2 = { ...emptyDocument(), entities: [boxEntity('entity-1')] };
 
     const next = applyCommand(document, {
       type: 'entity.update',
@@ -55,7 +82,7 @@ describe('applyCommand', () => {
 
   it('does not mutate the original document or entity on update', () => {
     const original = boxEntity('entity-1');
-    const document: CadDocumentV1 = { ...emptyDocument(), entities: [original] };
+    const document: CadDocumentV2 = { ...emptyDocument(), entities: [original] };
 
     const next = applyCommand(document, { type: 'entity.update', id: 'entity-1', patch: { name: 'renamed' } });
 
@@ -73,7 +100,7 @@ describe('applyCommand', () => {
   });
 
   it('deletes an existing entity', () => {
-    const document: CadDocumentV1 = {
+    const document: CadDocumentV2 = {
       ...emptyDocument(),
       entities: [boxEntity('entity-1'), boxEntity('entity-2')],
     };
@@ -84,7 +111,7 @@ describe('applyCommand', () => {
   });
 
   it('does not mutate the original document or its entities array on delete', () => {
-    const document: CadDocumentV1 = { ...emptyDocument(), entities: [boxEntity('entity-1')] };
+    const document: CadDocumentV2 = { ...emptyDocument(), entities: [boxEntity('entity-1')] };
 
     const next = applyCommand(document, { type: 'entity.delete', id: 'entity-1' });
 
@@ -107,6 +134,106 @@ describe('applyCommand', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UnknownEntityError);
       expect((error as UnknownEntityError).entityId).toBe('missing-entity');
+    }
+  });
+});
+
+describe('applyCommand — M2 feature commands', () => {
+  it('creates a new sketch feature', () => {
+    const document = emptyDocument();
+    const feature = circleSketch('sketch-1');
+
+    const next = applyCommand(document, { type: 'feature.create', feature });
+
+    expect(next.features).toEqual([feature]);
+  });
+
+  it('creates a new extrude feature', () => {
+    const document: CadDocumentV2 = { ...emptyDocument(), features: [circleSketch('sketch-1')] };
+    const feature = extrudeFeature('extrude-1', 'sketch-1');
+
+    const next = applyCommand(document, { type: 'feature.create', feature });
+
+    expect(next.features).toEqual([circleSketch('sketch-1'), feature]);
+  });
+
+  it('does not mutate the original document or its features array on create', () => {
+    const document = emptyDocument();
+    const feature = circleSketch('sketch-1');
+
+    const next = applyCommand(document, { type: 'feature.create', feature });
+
+    expect(document.features).toEqual([]);
+    expect(next.features).not.toBe(document.features);
+    expect(next).not.toBe(document);
+  });
+
+  it('updates an existing feature with a partial patch', () => {
+    const document: CadDocumentV2 = { ...emptyDocument(), features: [circleSketch('sketch-1')] };
+
+    const next = applyCommand(document, {
+      type: 'feature.update',
+      id: 'sketch-1',
+      patch: { name: 'Renamed', visible: false },
+    });
+
+    expect(next.features).toEqual([{ ...circleSketch('sketch-1'), name: 'Renamed', visible: false }]);
+  });
+
+  it('does not mutate the original document or feature on update', () => {
+    const original = circleSketch('sketch-1');
+    const document: CadDocumentV2 = { ...emptyDocument(), features: [original] };
+
+    const next = applyCommand(document, { type: 'feature.update', id: 'sketch-1', patch: { name: 'Renamed' } });
+
+    expect(document.features[0]).toBe(original);
+    expect(original.name).toBe('Sketch 1');
+    expect(next.features).not.toBe(document.features);
+  });
+
+  it('throws UnknownFeatureError when updating a missing feature', () => {
+    const document = emptyDocument();
+
+    expect(() => applyCommand(document, { type: 'feature.update', id: 'missing', patch: {} })).toThrow(
+      UnknownFeatureError,
+    );
+  });
+
+  it('deletes an existing feature', () => {
+    const document: CadDocumentV2 = {
+      ...emptyDocument(),
+      features: [circleSketch('sketch-1'), circleSketch('sketch-2')],
+    };
+
+    const next = applyCommand(document, { type: 'feature.delete', id: 'sketch-1' });
+
+    expect(next.features).toEqual([circleSketch('sketch-2')]);
+  });
+
+  it('does not mutate the original document or its features array on delete', () => {
+    const document: CadDocumentV2 = { ...emptyDocument(), features: [circleSketch('sketch-1')] };
+
+    const next = applyCommand(document, { type: 'feature.delete', id: 'sketch-1' });
+
+    expect(document.features).toEqual([circleSketch('sketch-1')]);
+    expect(next.features).not.toBe(document.features);
+  });
+
+  it('throws UnknownFeatureError when deleting a missing feature', () => {
+    const document = emptyDocument();
+
+    expect(() => applyCommand(document, { type: 'feature.delete', id: 'missing' })).toThrow(UnknownFeatureError);
+  });
+
+  it('includes the feature id on UnknownFeatureError', () => {
+    const document = emptyDocument();
+    expect.assertions(2);
+
+    try {
+      applyCommand(document, { type: 'feature.delete', id: 'missing-feature' });
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnknownFeatureError);
+      expect((error as UnknownFeatureError).featureId).toBe('missing-feature');
     }
   });
 });

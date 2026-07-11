@@ -1,11 +1,11 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { parseCadDocument } from '@swalha-cad/document';
 
 export type OpenDocumentResult =
-  | { success: true; document: CadDocumentV1 }
+  | { success: true; document: CadDocumentV2 }
   | { success: false; error: string };
 
-/** Reads a `.swcad.json` file, parses its JSON, and validates it against the V1 document schema. */
+/** Reads a `.swcad.json` file, parses its JSON, and validates/migrates it to the canonical V2 document schema. */
 export async function openCadDocumentFile(file: File): Promise<OpenDocumentResult> {
   const text = await file.text();
 

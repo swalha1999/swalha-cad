@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 
@@ -61,8 +61,8 @@ test('saves a document, reloads it, and exports a parseable STL with expected wo
   const savedDocumentPath = await (await saveDownload).path();
   expect(savedDocumentPath).toBeTruthy();
 
-  const savedJson = JSON.parse(await readFile(savedDocumentPath!, 'utf-8')) as CadDocumentV1;
-  expect(savedJson.schemaVersion).toBe(1);
+  const savedJson = JSON.parse(await readFile(savedDocumentPath!, 'utf-8')) as CadDocumentV2;
+  expect(savedJson.schemaVersion).toBe(2);
   expect(savedJson.units).toBe('mm');
   expect(savedJson.entities).toHaveLength(4);
   const savedBracket = savedJson.entities.find((entity) => entity.name === 'L-Bracket 2');

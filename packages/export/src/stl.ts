@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import {
   buildPrimitiveMesh,
   cross,
@@ -32,7 +32,7 @@ interface Facet {
  * for STL's one-normal-per-facet format even where the source mesh uses
  * smooth per-vertex shading, such as a cylinder's side wall.
  */
-function collectWorldFacets(document: CadDocumentV1): Facet[] {
+function collectWorldFacets(document: CadDocumentV2): Facet[] {
   const facets: Facet[] = [];
   for (const entity of document.entities) {
     if (!entity.visible) continue;
@@ -55,7 +55,7 @@ function collectWorldFacets(document: CadDocumentV1): Facet[] {
  * float32 LE facet normal, its three float32 LE vertices (world-space
  * millimetres, transforms baked in), and a zero uint16 attribute byte count.
  */
-export function exportDocumentToBinaryStl(document: CadDocumentV1): Uint8Array {
+export function exportDocumentToBinaryStl(document: CadDocumentV2): Uint8Array {
   const facets = collectWorldFacets(document);
 
   const buffer = new ArrayBuffer(HEADER_SIZE + COUNT_SIZE + facets.length * TRIANGLE_SIZE);

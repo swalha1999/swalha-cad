@@ -1,4 +1,4 @@
-import type { CadDocumentV1, CadEntity } from '@swalha-cad/document';
+import type { CadDocumentV2, CadEntity } from '@swalha-cad/document';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -86,8 +86,8 @@ function makeEntity(overrides: Partial<CadEntity>): CadEntity {
   };
 }
 
-function makeDocument(entities: readonly CadEntity[]): CadDocumentV1 {
-  return { schemaVersion: 1, units: 'mm', entities: [...entities] };
+function makeDocument(entities: readonly CadEntity[]): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities: [...entities], features: [] };
 }
 
 describe('exportDocumentToBinaryStl', () => {

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { CadStoreProvider } from '../store/cad-store-context.js';
 import { createCadStore } from '../store/cad-store.js';
 import { buildTestDocument } from '../test/fixtures.js';
@@ -78,7 +78,7 @@ describe('DocumentBar', () => {
 
   it('loads a successfully opened document into the store and shows no error', async () => {
     const store = renderDocumentBar();
-    const loaded: CadDocumentV1 = { schemaVersion: 1, units: 'mm', entities: [] };
+    const loaded: CadDocumentV2 = { schemaVersion: 2, units: 'mm', entities: [], features: [] };
     openDocumentState.openCadDocumentFile.mockResolvedValueOnce({ success: true, document: loaded });
     const file = new File(['{}'], 'design.swcad.json', { type: 'application/json' });
 

@@ -23,30 +23,30 @@ const BOX_ENTITY = {
   visible: true,
 } as const;
 
-const SEED_DOCUMENT: CadDocumentV1 = {
+const SEED_DOCUMENT_V1: CadDocumentV1 = {
   schemaVersion: 1,
   units: 'mm',
   entities: [BOX_ENTITY],
 };
 
 describe('DocumentSession.open', () => {
-  it('creates and persists an empty V1 document when the startup path does not exist', async () => {
+  it('creates and persists an empty V2 document when the startup path does not exist', async () => {
     const filePath = join(dir, 'design.swcad.json');
 
     const session = await DocumentSession.open(filePath);
 
-    expect(session.getDocument()).toEqual({ schemaVersion: 1, units: 'mm', entities: [] });
+    expect(session.getDocument()).toEqual({ schemaVersion: 2, units: 'mm', entities: [], features: [] });
     const onDisk = JSON.parse(await readFile(filePath, 'utf8'));
-    expect(onDisk).toEqual({ schemaVersion: 1, units: 'mm', entities: [] });
+    expect(onDisk).toEqual({ schemaVersion: 2, units: 'mm', entities: [], features: [] });
   });
 
-  it('loads and validates an existing document', async () => {
+  it('loads and migrates an existing V1 document to canonical V2', async () => {
     const filePath = join(dir, 'design.swcad.json');
-    await writeFile(filePath, JSON.stringify(SEED_DOCUMENT), 'utf8');
+    await writeFile(filePath, JSON.stringify(SEED_DOCUMENT_V1), 'utf8');
 
     const session = await DocumentSession.open(filePath);
 
-    expect(session.getDocument()).toEqual(SEED_DOCUMENT);
+    expect(session.getDocument()).toEqual({ ...SEED_DOCUMENT_V1, schemaVersion: 2, features: [] });
   });
 
   it('rejects malformed JSON with a DocumentSessionError', async () => {

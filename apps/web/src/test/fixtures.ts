@@ -1,9 +1,10 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 
-export function buildTestDocument(): CadDocumentV1 {
+export function buildTestDocument(): CadDocumentV2 {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     units: 'mm',
+    features: [],
     entities: [
       {
         id: 'box-1',

@@ -1,4 +1,4 @@
-import type { CadDocumentV1, CadEntity, Primitive, Transform } from '@swalha-cad/document';
+import type { CadDocumentV2, CadEntity, Primitive, Transform } from '@swalha-cad/document';
 import { composeTransformMatrix } from '@swalha-cad/geometry';
 import type { Material } from 'three';
 import { DoubleSide, FrontSide, Mesh } from 'three';
@@ -22,8 +22,8 @@ function entity(id: string, primitive: Primitive, overrides: Partial<CadEntity> 
   };
 }
 
-function documentOf(entities: CadEntity[]): CadDocumentV1 {
-  return { schemaVersion: 1, units: 'mm', entities };
+function documentOf(entities: CadEntity[]): CadDocumentV2 {
+  return { schemaVersion: 2, units: 'mm', entities, features: [] };
 }
 
 const BOX: Primitive = { kind: 'box', width: 10, height: 20, depth: 30 };

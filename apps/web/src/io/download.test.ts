@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { DOCUMENT_FILENAME, STL_FILENAME, downloadBlob, downloadCadDocument, downloadStl } from './download.js';
 
-const TEST_DOCUMENT: CadDocumentV1 = {
-  schemaVersion: 1,
+const TEST_DOCUMENT: CadDocumentV2 = {
+  schemaVersion: 2,
   units: 'mm',
   entities: [],
+  features: [],
 };
 
 describe('downloadBlob', () => {

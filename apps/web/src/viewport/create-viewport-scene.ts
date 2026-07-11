@@ -1,4 +1,4 @@
-import type { CadDocumentV1, Transform } from '@swalha-cad/document';
+import type { CadDocumentV2, Transform } from '@swalha-cad/document';
 import type { Viewport } from '@swalha-cad/renderer';
 import {
   SceneSync,
@@ -21,7 +21,7 @@ export type StandardView = 'front' | 'top' | 'right' | 'home';
 
 export interface ViewportSceneOptions {
   canvas: HTMLCanvasElement;
-  document: CadDocumentV1;
+  document: CadDocumentV2;
   projection: CameraProjection;
   selectedEntityId: string | null;
   viewport: Viewport;
@@ -31,7 +31,7 @@ export interface ViewportSceneOptions {
 
 export interface ViewportScene {
   readonly scene: Scene;
-  updateDocument(document: CadDocumentV1): void;
+  updateDocument(document: CadDocumentV2): void;
   setSelection(entityId: string | null): void;
   setProjection(projection: CameraProjection): void;
   resize(viewport: Viewport): void;
