@@ -15,4 +15,17 @@ export {
 } from './math/mat4.js';
 export type { Transform } from './math/transform.js';
 export { composeTransformMatrix, composeWorldMatrix, transformNormalBy, transformPointBy } from './math/transform.js';
+export type { IndexedMesh } from './mesh.js';
+export { getNormal, getPosition, getTriangleVertexIndices, triangleCount, vertexCount } from './mesh.js';
+export type { MeshBounds } from './mesh-validation.js';
+export {
+  areIndicesInRange,
+  areNormalsOutward,
+  areNormalsUnitLength,
+  computeMeshBounds,
+  hasZeroAreaTriangles,
+  isWindingOutward,
+  triangleArea,
+} from './mesh-validation.js';
+export { buildBoxMesh } from './primitives/box.js';
 
