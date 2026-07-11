@@ -25,6 +25,8 @@ import { solveSketch } from '@swalha-cad/geometry';
 import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
 import type { NewConstraint } from '../sketch/constraint-actions.js';
+import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
+import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
 
@@ -83,6 +85,14 @@ export interface CadStoreState {
   selectedConstraintId: string | null;
   /** Live solver status/diagnostics for the active sketch, or `null` outside sketch mode. */
   sketchSolve: SketchSolveState | null;
+  /**
+   * Independent, opt-in snap aids for the free-coordinate canvas. Held at the
+   * store top level so a toggle persists across leaving and re-entering sketch
+   * mode (and across document loads) for the whole app session.
+   */
+  snapSettings: SnapSettings;
+  /** Whether the sketch grid is drawn. Purely a visual aid — independent of grid snapping. */
+  gridVisible: boolean;
   selectEntity: (id: string | null) => void;
   setCameraProjection: (projection: CameraProjection) => void;
   createEntity: (kind: Primitive['kind']) => string;
@@ -114,6 +124,12 @@ export interface CadStoreState {
   deleteConstraint: (id: string) => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
+  /** Sets one snap toggle to a specific value. */
+  setSnapTarget: (target: SnapTarget, enabled: boolean) => void;
+  /** Flips one snap toggle. */
+  toggleSnapTarget: (target: SnapTarget) => void;
+  /** Shows or hides the sketch grid (visual only; does not affect grid snapping). */
+  setGridVisible: (visible: boolean) => void;
 }
 
 const IDENTITY_ROTATION_SCALE = { rotationDeg: [0, 0, 0], scale: [1, 1, 1] } as const;
@@ -276,6 +292,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     sketchSelection: [],
     selectedConstraintId: null,
     sketchSolve: null,
+    snapSettings: { ...DEFAULT_SNAP_SETTINGS },
+    gridVisible: true,
 
     selectEntity: (id) => {
       if (id !== null && !get().document.entities.some((entity) => entity.id === id)) {
@@ -597,6 +615,17 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         sketchSolve: null,
       });
     },
+
+    setSnapTarget: (target, enabled) => {
+      set({ snapSettings: { ...get().snapSettings, [target]: enabled } });
+    },
+
+    toggleSnapTarget: (target) => {
+      const current = get().snapSettings;
+      set({ snapSettings: { ...current, [target]: !current[target] } });
+    },
+
+    setGridVisible: (visible) => set({ gridVisible: visible }),
   }));
 }
 

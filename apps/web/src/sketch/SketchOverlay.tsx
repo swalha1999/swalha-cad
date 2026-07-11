@@ -7,7 +7,7 @@ import { selectActiveSketch } from '../store/cad-store.js';
 import { ConstraintGlyphs } from './ConstraintGlyphs.js';
 import { toolPreview } from './preview.js';
 import type { PreviewGeometry } from './preview.js';
-import type { Vec2 } from './tools/types.js';
+import type { SnapKind, Vec2 } from './tools/types.js';
 import { useSketchInteraction } from './useSketchInteraction.js';
 import {
   GRID_SIZE,
@@ -168,13 +168,16 @@ function Preview({ preview }: { preview: PreviewGeometry }) {
   );
 }
 
-function SnapIndicator({ cursor, kind }: { cursor: Vec2; kind: 'point' | 'grid' }) {
+/** Strong object snaps get a larger ring; grid/free/inference a smaller one. */
+const STRONG_SNAP_KINDS = new Set<SnapKind>(['endpoint', 'center', 'intersection', 'midpoint', 'origin']);
+
+function SnapIndicator({ cursor, kind }: { cursor: Vec2; kind: SnapKind }) {
   const p = planeToSvg(cursor.x, cursor.y);
   return (
     <circle
       cx={p.x}
       cy={p.y}
-      r={kind === 'point' ? 6 : 4}
+      r={STRONG_SNAP_KINDS.has(kind) ? 6 : 4}
       className={`sketch-overlay__snap sketch-overlay__snap--${kind}`}
       aria-hidden="true"
     />
@@ -195,6 +198,7 @@ export function SketchOverlay() {
   const session = useCadStore((state) => state.sketch);
   const selection = useCadStore((state) => state.sketchSelection);
   const solve = useCadStore((state) => state.sketchSolve);
+  const gridVisible = useCadStore((state) => state.gridVisible);
   const toggleSelection = useCadStore((state) => state.toggleSketchEntitySelection);
 
   const entities = sketch?.entities ?? [];
@@ -215,7 +219,7 @@ export function SketchOverlay() {
       onClick={handlers.onClick}
       onDoubleClick={handlers.onDoubleClick}
     >
-      <Grid />
+      {gridVisible ? <Grid /> : null}
       <Axes />
       <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={toggleSelection} />
       {sketch ? <ConstraintGlyphs sketch={sketch} /> : null}

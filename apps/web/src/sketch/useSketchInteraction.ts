@@ -1,11 +1,20 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import { useCallback, useEffect } from 'react';
+import type { SketchEntity } from '@swalha-cad/document';
 import { useCadStoreApi } from '../store/cad-store-context.js';
 import { selectActiveSketch } from '../store/cad-store.js';
-import type { ExistingPoint } from './snapping.js';
+import type { SnapContext, SnapCircleCenter, SnapLine, SnapPoint } from './snapping.js';
 import { resolveSnap } from './snapping.js';
-import type { SnapResult, Vec2 } from './tools/types.js';
+import type { SketchToolKind, SnapResult, Vec2 } from './tools/types.js';
 import { GRID_SIZE, PIXELS_PER_UNIT, POINT_SNAP_DISTANCE } from './view.js';
+
+/** Single-key shortcuts that select a drawing tool while the sketch workspace is active. */
+const TOOL_SHORTCUTS: Record<string, SketchToolKind> = {
+  p: 'point',
+  l: 'line',
+  r: 'rectangle',
+  c: 'circle',
+};
 
 /**
  * Maps a client (screen) coordinate to the sketch's plane-local frame using the
@@ -26,34 +35,60 @@ function clientToPlane(svg: SVGSVGElement, clientX: number, clientY: number): Ve
   return { x: local.x / PIXELS_PER_UNIT, y: -local.y / PIXELS_PER_UNIT };
 }
 
+/** Projects the active sketch's committed geometry into a plane-local snap context. */
+function buildSnapContext(entities: readonly SketchEntity[]): SnapContext {
+  const points: SnapPoint[] = [];
+  const coords = new Map<string, { x: number; y: number }>();
+  for (const entity of entities) {
+    if (entity.kind === 'point') {
+      points.push({ id: entity.id, x: entity.x, y: entity.y });
+      coords.set(entity.id, { x: entity.x, y: entity.y });
+    }
+  }
+  const lines: SnapLine[] = [];
+  const centers: SnapCircleCenter[] = [];
+  for (const entity of entities) {
+    if (entity.kind === 'line') {
+      const a = coords.get(entity.startId);
+      const b = coords.get(entity.endId);
+      if (a && b) lines.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+    } else if (entity.kind === 'circle') {
+      const c = coords.get(entity.centerId);
+      if (c) centers.push({ id: entity.centerId, x: c.x, y: c.y });
+    }
+  }
+  return { points, lines, centers };
+}
+
 /**
  * Wires DOM pointer/keyboard interaction on the sketch overlay to the store's
- * deterministic tool state machine: pointer moves/clicks snap against existing
- * geometry and dispatch tool events, double-click/Enter finish a chain, and
- * Escape cancels the active step. All committing happens inside the store, so
- * every action still flows through the feature-command history.
+ * deterministic tool state machine: pointer moves/clicks resolve against the
+ * user's independent snap settings (holding Alt bypasses every snap for exact
+ * free placement) and dispatch tool events; double-click/Enter finish a chain and
+ * Escape cancels the active step. Single-key shortcuts pick a tool (P/L/R/C) or
+ * toggle the grid (G). All committing happens inside the store, so every action
+ * still flows through the feature-command history.
  */
 export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
   const storeApi = useCadStoreApi();
 
   const snapAt = useCallback(
-    (clientX: number, clientY: number): SnapResult | null => {
+    (clientX: number, clientY: number, bypass: boolean): SnapResult | null => {
       const svg = svgRef.current;
       if (!svg) return null;
       const raw = clientToPlane(svg, clientX, clientY);
       if (!raw) return null;
-      const sketch = selectActiveSketch(storeApi.getState());
-      const points: ExistingPoint[] = (sketch?.entities ?? [])
-        .filter((entity) => entity.kind === 'point')
-        .map((entity) => ({ id: entity.id, x: entity.x, y: entity.y }));
-      return resolveSnap(raw, points, { gridSize: GRID_SIZE, pointSnapDistance: POINT_SNAP_DISTANCE });
+      const state = storeApi.getState();
+      const sketch = selectActiveSketch(state);
+      const context = buildSnapContext(sketch?.entities ?? []);
+      return resolveSnap(raw, context, state.snapSettings, { gridSize: GRID_SIZE, snapDistance: POINT_SNAP_DISTANCE }, bypass);
     },
     [storeApi, svgRef],
   );
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
-      const snap = snapAt(event.clientX, event.clientY);
+      const snap = snapAt(event.clientX, event.clientY, event.altKey);
       if (snap) storeApi.getState().dispatchSketchEvent({ type: 'move', snap });
     },
     [snapAt, storeApi],
@@ -70,7 +105,7 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         state.clearSketchSelection();
         return;
       }
-      const snap = snapAt(event.clientX, event.clientY);
+      const snap = snapAt(event.clientX, event.clientY, event.altKey);
       if (snap) state.dispatchSketchEvent({ type: 'click', snap });
     },
     [snapAt, storeApi],
@@ -80,16 +115,36 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
     storeApi.getState().dispatchSketchEvent({ type: 'finish' });
   }, [storeApi]);
 
-  // Escape/Enter are window-level so they work regardless of focus within the workspace.
+  // Escape/Enter/shortcuts are window-level so they work regardless of focus within the workspace.
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      if (!storeApi.getState().sketch) return;
+      const state = storeApi.getState();
+      if (!state.sketch) return;
+
       if (event.key === 'Escape') {
         event.preventDefault();
-        storeApi.getState().dispatchSketchEvent({ type: 'cancel' });
-      } else if (event.key === 'Enter') {
+        state.dispatchSketchEvent({ type: 'cancel' });
+        return;
+      }
+      if (event.key === 'Enter') {
         event.preventDefault();
-        storeApi.getState().dispatchSketchEvent({ type: 'finish' });
+        state.dispatchSketchEvent({ type: 'finish' });
+        return;
+      }
+
+      // Plain single-key shortcuts only — never hijack modifier combos or typing in a field.
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+
+      const key = event.key.toLowerCase();
+      const tool = TOOL_SHORTCUTS[key];
+      if (tool) {
+        event.preventDefault();
+        state.setSketchTool(state.sketch.tool === tool ? null : tool);
+      } else if (key === 'g') {
+        event.preventDefault();
+        state.setGridVisible(!state.gridVisible);
       }
     }
     window.addEventListener('keydown', handleKeyDown);

@@ -22,8 +22,23 @@ export interface Vec2 {
  */
 export type PointRef = { kind: 'existing'; id: string } | { kind: 'new'; x: number; y: number };
 
-/** Which visual feedback the cursor snapped to, for the overlay's snap indicator. */
-export type SnapKind = 'point' | 'grid';
+/**
+ * Which snap target the cursor resolved to, for the overlay's snap indicator and
+ * deterministic priority. `free` means no snap applied — the cursor kept its
+ * continuous floating-point plane coordinate (grid quantization is opt-in, never
+ * mandatory). Strong object snaps (`endpoint`/`center`/`intersection`/`midpoint`/
+ * `origin`) beat inference (`horizontal`/`vertical`) which beats `grid`.
+ */
+export type SnapKind =
+  | 'endpoint'
+  | 'midpoint'
+  | 'center'
+  | 'intersection'
+  | 'horizontal'
+  | 'vertical'
+  | 'origin'
+  | 'grid'
+  | 'free';
 
 /** The resolved cursor position plus how it should be committed if clicked. */
 export interface SnapResult {

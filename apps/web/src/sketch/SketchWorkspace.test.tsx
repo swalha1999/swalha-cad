@@ -64,4 +64,39 @@ describe('SketchWorkspace', () => {
     expect(store.getState().sketch).toBeNull();
     expect(store.getState().document.features).toHaveLength(1);
   });
+
+  it('exposes a grid-visibility toggle that is independent of grid snapping', () => {
+    const store = renderWorkspace();
+
+    const gridToggle = screen.getByRole('button', { name: 'Show grid' });
+    expect(gridToggle).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(gridToggle);
+
+    expect(store.getState().gridVisible).toBe(false);
+    // Hiding the grid does not enable (or disable) grid snapping.
+    expect(store.getState().snapSettings.grid).toBe(false);
+  });
+
+  it('exposes the snap-settings popover trigger', () => {
+    renderWorkspace();
+    expect(screen.getByRole('button', { name: 'Snap settings' })).toBeInTheDocument();
+  });
+
+  it('selects a tool with a single-key shortcut and toggles the grid with G', () => {
+    const store = renderWorkspace();
+
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(store.getState().sketch?.tool).toBe('rectangle');
+
+    fireEvent.keyDown(window, { key: 'g' });
+    expect(store.getState().gridVisible).toBe(false);
+  });
+
+  it('ignores shortcut keys pressed with a modifier (e.g. Ctrl+R)', () => {
+    const store = renderWorkspace();
+
+    fireEvent.keyDown(window, { key: 'r', ctrlKey: true });
+    expect(store.getState().sketch?.tool).toBeNull();
+  });
 });

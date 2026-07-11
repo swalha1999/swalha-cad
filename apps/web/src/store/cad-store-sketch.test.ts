@@ -185,3 +185,49 @@ describe('finishSketch', () => {
     expect(store.getState().document.features.find((feature) => feature.id === id)).toBeDefined();
   });
 });
+
+describe('snap settings and grid visibility', () => {
+  it('defaults to continuous placement: grid snapping off, object/inference snaps on, grid shown', () => {
+    const store = deterministicStore();
+    const state = store.getState();
+    expect(state.snapSettings).toEqual({
+      grid: false,
+      endpoint: true,
+      midpoint: true,
+      center: true,
+      intersection: true,
+      horizontalVertical: true,
+      origin: true,
+    });
+    expect(state.gridVisible).toBe(true);
+  });
+
+  it('toggles a single snap target independently', () => {
+    const store = deterministicStore();
+    store.getState().toggleSnapTarget('endpoint');
+    expect(store.getState().snapSettings.endpoint).toBe(false);
+    expect(store.getState().snapSettings.midpoint).toBe(true);
+
+    store.getState().setSnapTarget('grid', true);
+    expect(store.getState().snapSettings.grid).toBe(true);
+  });
+
+  it('shows/hides the grid without affecting grid snapping', () => {
+    const store = deterministicStore();
+    store.getState().setGridVisible(false);
+    expect(store.getState().gridVisible).toBe(false);
+    expect(store.getState().snapSettings.grid).toBe(false);
+  });
+
+  it('persists snap settings across entering and finishing a sketch (app-session scoped)', () => {
+    const store = deterministicStore();
+    store.getState().setSnapTarget('grid', true);
+    store.getState().toggleSnapTarget('origin');
+
+    store.getState().enterSketch('XY');
+    store.getState().finishSketch();
+
+    expect(store.getState().snapSettings.grid).toBe(true);
+    expect(store.getState().snapSettings.origin).toBe(false);
+  });
+});

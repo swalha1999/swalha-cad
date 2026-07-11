@@ -11,7 +11,7 @@ function freeSnap(x: number, y: number): SnapResult {
 }
 
 function existingSnap(id: string, x: number, y: number): SnapResult {
-  return { point: { x, y }, ref: { kind: 'existing', id }, kind: 'point' };
+  return { point: { x, y }, ref: { kind: 'existing', id }, kind: 'endpoint' };
 }
 
 describe('initialToolState', () => {

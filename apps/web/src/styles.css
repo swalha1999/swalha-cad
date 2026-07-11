@@ -488,6 +488,104 @@ body {
   gap: 2px;
 }
 
+/* Dense icon-first tool groups within the sketch toolbar. */
+.sketch-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sketch-tool-group__overflow {
+  position: relative;
+}
+
+.sketch-tool-group__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--shell-panel);
+  border: 1px solid var(--shell-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.sketch-tool-group__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sketch-tool-group__menu-item:hover:not(:disabled) {
+  background: var(--shell-row-hover);
+}
+
+.sketch-tool-group__menu-item:disabled {
+  color: var(--shell-text-muted);
+  cursor: not-allowed;
+}
+
+.sketch-tool-group__menu-icon {
+  display: inline-flex;
+}
+
+.sketch-tool-group__menu-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Independent snap-settings popover. */
+.snap-settings {
+  position: relative;
+  display: inline-flex;
+}
+
+.snap-settings__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 200px;
+  padding: 8px;
+  background: var(--shell-panel);
+  border: 1px solid var(--shell-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+.snap-settings__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.snap-settings__row:hover {
+  background: var(--shell-row-hover);
+}
+
+.snap-settings__hint {
+  margin: 6px 6px 2px;
+  font-size: 11px;
+  color: var(--shell-text-muted);
+}
+
 /* Constraint status readout (context panel) */
 
 .constraint-status {
@@ -667,12 +765,29 @@ body {
   stroke-width: 1.5;
 }
 
-.sketch-overlay__snap--point {
+/* Strong object snaps: warm amber ring. */
+.sketch-overlay__snap--endpoint,
+.sketch-overlay__snap--center,
+.sketch-overlay__snap--intersection,
+.sketch-overlay__snap--midpoint,
+.sketch-overlay__snap--origin {
   stroke: #f5a623;
+}
+
+/* Inference (horizontal/vertical) snaps: teal ring. */
+.sketch-overlay__snap--horizontal,
+.sketch-overlay__snap--vertical {
+  stroke: #0d9488;
 }
 
 .sketch-overlay__snap--grid {
   stroke: var(--shell-accent);
+}
+
+/* Free (unsnapped) continuous placement: faint neutral ring. */
+.sketch-overlay__snap--free {
+  stroke: var(--shell-border);
+  stroke-opacity: 0.6;
 }
 
 /* Only the invisible hit targets catch pointer events; the painted geometry and
