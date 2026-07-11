@@ -4,6 +4,7 @@ import { useCadStore } from '../store/cad-store-context.js';
 import { IconButton } from '../components/ui/IconButton.js';
 import { Separator } from '../components/ui/Separator.js';
 import { Tooltip } from '../components/ui/Tooltip.js';
+import { ConstraintToolbar } from './ConstraintToolbar.js';
 import { SketchOverlay } from './SketchOverlay.js';
 import type { SketchToolKind } from './tools/types.js';
 
@@ -54,6 +55,8 @@ export function SketchWorkspace() {
             onClick={() => setSketchConstruction(!session.construction)}
           />
         </Tooltip>
+        <Separator orientation="vertical" className="sketch-workspace__separator" />
+        <ConstraintToolbar />
         <button type="button" className="btn btn--default btn--sm sketch-workspace__finish" onClick={() => finishSketch()}>
           Finish Sketch
         </button>

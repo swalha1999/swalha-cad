@@ -6,6 +6,7 @@ import type {
   CadFeature,
   CommandHistory,
   Primitive,
+  SketchConstraint,
   SketchFeature,
   SketchPlane,
   Transform,
@@ -19,8 +20,11 @@ import {
   redo as historyRedo,
   undo as historyUndo,
 } from '@swalha-cad/document';
+import type { SolveDiagnostic, SolveStatus } from '@swalha-cad/geometry';
+import { solveSketch } from '@swalha-cad/geometry';
 import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
+import type { NewConstraint } from '../sketch/constraint-actions.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
 
@@ -44,6 +48,26 @@ export interface SketchSession {
   cursorSnap: SnapKind | null;
 }
 
+/**
+ * The live constraint state of the active sketch, recomputed from the committed
+ * geometry after every mutating action. `status` drives the blue/dark/red visual
+ * convention; `diagnostics` identify the conflicting constraints when a solve
+ * fails to converge.
+ */
+export interface SketchSolveState {
+  status: SolveStatus;
+  remainingDof: number;
+  diagnostics: readonly SolveDiagnostic[];
+}
+
+/** The result of applying or editing a constraint, for callers that surface a message. */
+export interface ConstraintOutcome {
+  /** True when the change reached the document (including a committed conflict); false when validation rejected it outright. */
+  applied: boolean;
+  status: SolveStatus | 'invalid' | null;
+  message: string | null;
+}
+
 export interface CadStoreState {
   document: CadDocumentV2;
   history: CommandHistory;
@@ -53,6 +77,12 @@ export interface CadStoreState {
   canRedo: boolean;
   /** Non-null while the focused 2D sketch workspace is active. */
   sketch: SketchSession | null;
+  /** Selected sketch entity ids (points/lines/circles) driving constraint availability; empty outside sketch mode. */
+  sketchSelection: string[];
+  /** The constraint whose dimension the properties panel is editing, or `null`. */
+  selectedConstraintId: string | null;
+  /** Live solver status/diagnostics for the active sketch, or `null` outside sketch mode. */
+  sketchSolve: SketchSolveState | null;
   selectEntity: (id: string | null) => void;
   setCameraProjection: (projection: CameraProjection) => void;
   createEntity: (kind: Primitive['kind']) => string;
@@ -68,6 +98,20 @@ export interface CadStoreState {
   setSketchConstruction: (construction: boolean) => void;
   /** Feeds one interaction event to the active tool, committing any produced geometry through history. */
   dispatchSketchEvent: (event: ToolEvent) => void;
+  /** Toggles a sketch entity's membership in the constraint selection; no-op for ids outside the active sketch. */
+  toggleSketchEntitySelection: (id: string) => void;
+  /** Replaces the sketch selection with the given ids (those present in the active sketch). */
+  setSketchSelection: (ids: string[]) => void;
+  /** Clears the sketch entity selection. */
+  clearSketchSelection: () => void;
+  /** Selects (or clears) the constraint whose dimension the properties panel edits. */
+  selectConstraint: (id: string | null) => void;
+  /** Adds a constraint via a `feature.update` command, re-solving and updating geometry/status deterministically. */
+  applyConstraint: (constraint: NewConstraint) => ConstraintOutcome;
+  /** Edits a dimensional constraint's value, validating it and re-solving through history. */
+  editConstraintValue: (id: string, value: number) => ConstraintOutcome;
+  /** Removes a constraint via a `feature.update` command and relaxes the solve status. */
+  deleteConstraint: (id: string) => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
 }
@@ -108,6 +152,72 @@ function nextFeatureName(features: readonly CadFeature[], base: string): string 
 function reconcileSelection(document: CadDocumentV2, selectedEntityId: string | null): string | null {
   if (selectedEntityId === null) return null;
   return document.entities.some((entity) => entity.id === selectedEntityId) ? selectedEntityId : null;
+}
+
+/** The first point in a sketch, held fixed by the solver so an otherwise mobile sketch can become fully constrained. */
+function firstAnchorPointId(sketch: SketchFeature): string | null {
+  for (const entity of sketch.entities) {
+    if (entity.kind === 'point') return entity.id;
+  }
+  return null;
+}
+
+/**
+ * Solves a sketch (grounded on its first point) and reduces the result to the
+ * status the UI displays. A sketch with no points is reported under-constrained
+ * rather than trivially fully-constrained; a validation failure is surfaced as a
+ * conflict so it renders red with its diagnostics.
+ */
+function computeSketchSolve(sketch: SketchFeature): SketchSolveState {
+  if (!sketch.entities.some((entity) => entity.kind === 'point')) {
+    return { status: 'under-constrained', remainingDof: 0, diagnostics: [] };
+  }
+  const anchor = firstAnchorPointId(sketch);
+  const result = solveSketch(sketch, anchor ? { anchoredPointIds: [anchor] } : {});
+  if (!result.ok) {
+    return { status: 'conflicting', remainingDof: 0, diagnostics: result.diagnostics };
+  }
+  return { status: result.status, remainingDof: result.remainingDof, diagnostics: result.diagnostics };
+}
+
+/** The active sketch feature in a document, or `null` when the id is missing/not a sketch. */
+function findSketch(document: CadDocumentV2, featureId: string): SketchFeature | null {
+  const feature = document.features.find((candidate) => candidate.id === featureId);
+  return feature && feature.kind === 'sketch' ? feature : null;
+}
+
+/** First human-readable diagnostic message, if any. */
+function firstDiagnosticMessage(diagnostics: readonly SolveDiagnostic[]): string | null {
+  return diagnostics[0]?.message ?? null;
+}
+
+/** Validates a dimensional constraint's edited value against the schema's accepted range. */
+function isValidDimensionValue(kind: SketchConstraint['kind'], value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  if (kind === 'angle') return value > 0 && value < 180;
+  if (kind === 'distance' || kind === 'radius') return value > 0;
+  return false;
+}
+
+/**
+ * Recomputes the sketch selection, edited-constraint reference, and solve status
+ * after an undo/redo may have removed entities/constraints or the whole sketch.
+ * Returns an empty patch when not in sketch mode so unrelated undos are untouched.
+ */
+function reconcileSketchAfterHistory(
+  state: CadStoreState,
+  document: CadDocumentV2,
+): Partial<Pick<CadStoreState, 'sketchSelection' | 'selectedConstraintId' | 'sketchSolve'>> {
+  if (!state.sketch) return {};
+  const sketch = findSketch(document, state.sketch.featureId);
+  if (!sketch) return { sketchSelection: [], selectedConstraintId: null, sketchSolve: null };
+  const entityIds = new Set(sketch.entities.map((entity) => entity.id));
+  const constraintIds = new Set(sketch.constraints.map((constraint) => constraint.id));
+  return {
+    sketchSelection: state.sketchSelection.filter((id) => entityIds.has(id)),
+    selectedConstraintId: state.selectedConstraintId && constraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,
+    sketchSolve: computeSketchSolve(sketch),
+  };
 }
 
 /**
@@ -163,6 +273,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     canUndo: false,
     canRedo: false,
     sketch: null,
+    sketchSelection: [],
+    selectedConstraintId: null,
+    sketchSolve: null,
 
     selectEntity: (id) => {
       if (id !== null && !get().document.entities.some((entity) => entity.id === id)) {
@@ -219,6 +332,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canRedo: false,
         selectedEntityId: null,
         sketch: null,
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: null,
       });
     },
 
@@ -232,6 +348,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
+        ...reconcileSketchAfterHistory(state, nextHistory.present),
       });
     },
 
@@ -245,6 +362,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
+        ...reconcileSketchAfterHistory(state, nextHistory.present),
       });
     },
 
@@ -270,6 +388,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         // Look orthographically straight down the plane normal for a true 2D workspace.
         cameraProjection: 'orthographic',
         sketch: { featureId, plane, tool: null, toolState: null, construction: false, cursor: null, cursorSnap: null },
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: computeSketchSolve(feature),
       });
       return featureId;
     },
@@ -277,7 +398,11 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     setSketchTool: (tool) => {
       const session = get().sketch;
       if (!session) return;
-      set({ sketch: { ...session, tool, toolState: tool ? initialToolState(tool) : null } });
+      // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
+      set({
+        sketch: { ...session, tool, toolState: tool ? initialToolState(tool) : null },
+        ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
+      });
     },
 
     setSketchConstruction: (construction) => {
@@ -305,13 +430,17 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
 
       let history = state.history;
       let document = state.document;
+      let committed = false;
       if (result.commit) {
         const command = buildSketchUpdateCommand(document, session.featureId, result.commit, createId, session.construction);
         if (command) {
           history = applyCommandToHistory(history, command);
           document = history.present;
+          committed = true;
         }
       }
+
+      const committedSketch = committed ? findSketch(document, session.featureId) : null;
 
       set({
         document,
@@ -324,12 +453,149 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           tool: result.exitTool ? null : session.tool,
           toolState: result.exitTool ? null : result.state,
         },
+        ...(committedSketch ? { sketchSolve: computeSketchSolve(committedSketch) } : {}),
+      });
+    },
+
+    toggleSketchEntitySelection: (id) => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch || !sketch.entities.some((entity) => entity.id === id)) return;
+      const selection = state.sketchSelection.includes(id)
+        ? state.sketchSelection.filter((existing) => existing !== id)
+        : [...state.sketchSelection, id];
+      set({ sketchSelection: selection });
+    },
+
+    setSketchSelection: (ids) => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch) {
+        set({ sketchSelection: [] });
+        return;
+      }
+      const valid = new Set(sketch.entities.map((entity) => entity.id));
+      set({ sketchSelection: ids.filter((id) => valid.has(id)) });
+    },
+
+    clearSketchSelection: () => set({ sketchSelection: [] }),
+
+    selectConstraint: (id) => set({ selectedConstraintId: id }),
+
+    applyConstraint: (constraint) => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch) return { applied: false, status: null, message: 'No active sketch.' };
+
+      const id = createId();
+      const fullConstraint = { id, ...constraint } as SketchConstraint;
+      const candidate: SketchFeature = { ...sketch, constraints: [...sketch.constraints, fullConstraint] };
+      const anchor = firstAnchorPointId(candidate);
+      const result = solveSketch(candidate, anchor ? { anchoredPointIds: [anchor] } : {});
+
+      if (!result.ok) {
+        // Invalid input (e.g. a dangling reference): reject outright, commit nothing.
+        return { applied: false, status: 'invalid', message: firstDiagnosticMessage(result.diagnostics) ?? 'Constraint could not be applied.' };
+      }
+
+      // On a conflict keep the prior geometry (rollback) but still record the constraint so the
+      // conflicting state is visible and undoable; otherwise adopt the solved geometry.
+      const patch =
+        result.status === 'conflicting'
+          ? { constraints: candidate.constraints }
+          : { constraints: candidate.constraints, entities: result.sketch.entities };
+      const nextHistory = applyCommandToHistory(state.history, { type: 'feature.update', id: sketch.id, patch });
+      const solve: SketchSolveState = { status: result.status, remainingDof: result.remainingDof, diagnostics: result.diagnostics };
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSolve: solve,
+        selectedConstraintId: id,
+      });
+      return {
+        applied: true,
+        status: result.status,
+        message: result.status === 'conflicting' ? firstDiagnosticMessage(result.diagnostics) : null,
+      };
+    },
+
+    editConstraintValue: (id, value) => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch) return { applied: false, status: null, message: 'No active sketch.' };
+      const constraint = sketch.constraints.find((candidate) => candidate.id === id);
+      if (!constraint) return { applied: false, status: null, message: 'Unknown constraint.' };
+      if (constraint.kind !== 'distance' && constraint.kind !== 'radius' && constraint.kind !== 'angle') {
+        return { applied: false, status: null, message: 'This constraint has no editable value.' };
+      }
+      if (!isValidDimensionValue(constraint.kind, value)) {
+        const unit = constraint.kind === 'angle' ? 'be between 0 and 180 degrees' : 'be a positive length in mm';
+        return { applied: false, status: null, message: `Value must ${unit}.` };
+      }
+
+      const updated =
+        constraint.kind === 'angle'
+          ? { ...constraint, valueDeg: value }
+          : { ...constraint, value };
+      const constraints = sketch.constraints.map((candidate) => (candidate.id === id ? updated : candidate));
+      const candidate: SketchFeature = { ...sketch, constraints };
+      const anchor = firstAnchorPointId(candidate);
+      const result = solveSketch(candidate, anchor ? { anchoredPointIds: [anchor] } : {});
+      if (!result.ok) {
+        return { applied: false, status: 'invalid', message: firstDiagnosticMessage(result.diagnostics) ?? 'Value could not be applied.' };
+      }
+
+      const patch =
+        result.status === 'conflicting' ? { constraints } : { constraints, entities: result.sketch.entities };
+      const nextHistory = applyCommandToHistory(state.history, { type: 'feature.update', id: sketch.id, patch });
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSolve: { status: result.status, remainingDof: result.remainingDof, diagnostics: result.diagnostics },
+      });
+      return {
+        applied: true,
+        status: result.status,
+        message: result.status === 'conflicting' ? firstDiagnosticMessage(result.diagnostics) : null,
+      };
+    },
+
+    deleteConstraint: (id) => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch || !sketch.constraints.some((constraint) => constraint.id === id)) return;
+      const constraints = sketch.constraints.filter((constraint) => constraint.id !== id);
+      const candidate: SketchFeature = { ...sketch, constraints };
+      const anchor = firstAnchorPointId(candidate);
+      const result = solveSketch(candidate, anchor ? { anchoredPointIds: [anchor] } : {});
+      // Removing constraints only relaxes the system, so a converged solve is expected;
+      // fall back to keeping geometry if the reduced system somehow fails to validate.
+      const patch =
+        result.ok && result.status !== 'conflicting' ? { constraints, entities: result.sketch.entities } : { constraints };
+      const nextHistory = applyCommandToHistory(state.history, { type: 'feature.update', id: sketch.id, patch });
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
+        selectedConstraintId: state.selectedConstraintId === id ? null : state.selectedConstraintId,
       });
     },
 
     finishSketch: () => {
       if (!get().sketch) return;
-      set({ sketch: null, cameraProjection: 'perspective' });
+      set({
+        sketch: null,
+        cameraProjection: 'perspective',
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: null,
+      });
     },
   }));
 }

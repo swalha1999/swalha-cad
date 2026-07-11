@@ -1,14 +1,22 @@
+import type { SolveStatus } from '@swalha-cad/geometry';
 import { useCadStore } from '../store/cad-store-context.js';
 import { selectSelectedEntity } from '../store/cad-store.js';
 
 const PROJECTION_LABEL = { perspective: 'Perspective', orthographic: 'Orthographic' } as const;
 
-/** Bottom Part Studio/status strip: tab, units, selection, and camera projection hints. */
+const SOLVE_LABEL: Record<SolveStatus, string> = {
+  'under-constrained': 'Under-constrained',
+  'fully-constrained': 'Fully constrained',
+  conflicting: 'Conflicting',
+};
+
+/** Bottom Part Studio/status strip: tab, units, selection, camera projection, and — while sketching — solver state. */
 export function StatusBar() {
   const units = useCadStore((state) => state.document.units);
   const bodyCount = useCadStore((state) => state.document.entities.length);
   const selectedEntity = useCadStore(selectSelectedEntity);
   const cameraProjection = useCadStore((state) => state.cameraProjection);
+  const sketchSolve = useCadStore((state) => state.sketchSolve);
 
   return (
     <footer className="status-bar">
@@ -20,7 +28,11 @@ export function StatusBar() {
       <div className="status-bar__info">
         <span className="status-bar__item">{units}</span>
         <span className="status-bar__item">{bodyCount} bodies</span>
-        <span className="status-bar__item">{selectedEntity ? selectedEntity.name : 'No selection'}</span>
+        {sketchSolve ? (
+          <span className={`status-bar__item status-bar__solve status-bar__solve--${sketchSolve.status}`}>{SOLVE_LABEL[sketchSolve.status]}</span>
+        ) : (
+          <span className="status-bar__item">{selectedEntity ? selectedEntity.name : 'No selection'}</span>
+        )}
         <span className="status-bar__item">{PROJECTION_LABEL[cameraProjection]}</span>
       </div>
     </footer>

@@ -1,7 +1,10 @@
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useRef } from 'react';
 import type { SketchEntity } from '@swalha-cad/document';
+import type { SolveStatus } from '@swalha-cad/geometry';
 import { useCadStore } from '../store/cad-store-context.js';
 import { selectActiveSketch } from '../store/cad-store.js';
+import { ConstraintGlyphs } from './ConstraintGlyphs.js';
 import { toolPreview } from './preview.js';
 import type { PreviewGeometry } from './preview.js';
 import type { Vec2 } from './tools/types.js';
@@ -61,36 +64,83 @@ function Axes() {
   );
 }
 
-function Geometry({ entities }: { entities: readonly SketchEntity[] }) {
+interface GeometryProps {
+  entities: readonly SketchEntity[];
+  selection: ReadonlySet<string>;
+  status: SolveStatus;
+  selectable: boolean;
+  onSelect: (id: string) => void;
+}
+
+/**
+ * The committed sketch geometry. The group carries the solve status so CSS can
+ * apply the blue/dark/red convention; each entity is coloured by construction
+ * state and highlighted when selected. When `selectable` (no drawing tool
+ * active) each entity is a keyboard-focusable target with a wide invisible hit
+ * area, so clicking or pressing Enter/Space toggles it in the constraint
+ * selection.
+ */
+function Geometry({ entities, selection, status, selectable, onSelect }: GeometryProps) {
   const points = pointMap(entities);
+
+  const hitProps = (id: string) =>
+    selectable
+      ? {
+          tabIndex: 0,
+          role: 'button' as const,
+          'aria-pressed': selection.has(id),
+          'aria-label': `Sketch ${entities.find((entity) => entity.id === id)?.kind ?? 'entity'}`,
+          onClick: (event: ReactMouseEvent) => {
+            event.stopPropagation();
+            onSelect(id);
+          },
+          onKeyDown: (event: ReactKeyboardEvent) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect(id);
+            }
+          },
+        }
+      : {};
+
   return (
-    <g className="sketch-overlay__geometry">
+    <g className={`sketch-overlay__geometry sketch-overlay__geometry--${status}`} data-solve-status={status}>
       {entities.map((entity) => {
         const construction = entity.construction ? ' sketch-overlay__edge--construction' : '';
+        const selected = selection.has(entity.id) ? ' sketch-overlay__selected' : '';
         if (entity.kind === 'line') {
           const a = points.get(entity.startId);
           const b = points.get(entity.endId);
           if (!a || !b) return null;
           const pa = planeToSvg(a.x, a.y);
           const pb = planeToSvg(b.x, b.y);
-          return <line key={entity.id} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className={`sketch-overlay__line${construction}`} />;
+          return (
+            <g key={entity.id} className="sketch-overlay__selectable" data-entity-id={entity.id} data-entity-kind="line">
+              <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className={`sketch-overlay__line${construction}${selected}`} />
+              {selectable ? <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className="sketch-overlay__hit" {...hitProps(entity.id)} /> : null}
+            </g>
+          );
         }
         if (entity.kind === 'circle') {
           const c = points.get(entity.centerId);
           if (!c) return null;
           const center = planeToSvg(c.x, c.y);
+          const r = entity.radius * PIXELS_PER_UNIT;
           return (
-            <circle
-              key={entity.id}
-              cx={center.x}
-              cy={center.y}
-              r={entity.radius * PIXELS_PER_UNIT}
-              className={`sketch-overlay__circle${construction}`}
-            />
+            <g key={entity.id} className="sketch-overlay__selectable" data-entity-id={entity.id} data-entity-kind="circle">
+              <circle cx={center.x} cy={center.y} r={r} className={`sketch-overlay__circle${construction}${selected}`} />
+              {selectable ? <circle cx={center.x} cy={center.y} r={r} className="sketch-overlay__hit sketch-overlay__hit--circle" {...hitProps(entity.id)} /> : null}
+            </g>
           );
         }
         const p = planeToSvg(entity.x, entity.y);
-        return <circle key={entity.id} cx={p.x} cy={p.y} r={3} className={`sketch-overlay__point${construction}`} />;
+        return (
+          <g key={entity.id} className="sketch-overlay__selectable" data-entity-id={entity.id} data-entity-kind="point">
+            <circle cx={p.x} cy={p.y} r={3} className={`sketch-overlay__point${construction}${selected}`} />
+            {selectable ? <circle cx={p.x} cy={p.y} r={7} className="sketch-overlay__hit sketch-overlay__hit--point" {...hitProps(entity.id)} /> : null}
+          </g>
+        );
       })}
     </g>
   );
@@ -143,9 +193,15 @@ export function SketchOverlay() {
   const handlers = useSketchInteraction(svgRef);
   const sketch = useCadStore(selectActiveSketch);
   const session = useCadStore((state) => state.sketch);
+  const selection = useCadStore((state) => state.sketchSelection);
+  const solve = useCadStore((state) => state.sketchSolve);
+  const toggleSelection = useCadStore((state) => state.toggleSketchEntitySelection);
 
   const entities = sketch?.entities ?? [];
   const preview = toolPreview(session?.toolState ?? null, session?.cursor ?? null);
+  const selectable = !session?.tool;
+  const status = solve?.status ?? 'under-constrained';
+  const selectionSet = new Set(selection);
 
   return (
     <svg
@@ -161,7 +217,8 @@ export function SketchOverlay() {
     >
       <Grid />
       <Axes />
-      <Geometry entities={entities} />
+      <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={toggleSelection} />
+      {sketch ? <ConstraintGlyphs sketch={sketch} /> : null}
       <Preview preview={preview} />
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
     </svg>

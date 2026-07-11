@@ -63,8 +63,15 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
     (event: ReactPointerEvent<SVGSVGElement>) => {
       // Ignore the synthetic click that concludes a double-click sequence.
       if (event.detail > 1) return;
+      const state = storeApi.getState();
+      // With no drawing tool active the canvas is in selection mode: a click on
+      // empty space (entity hit targets stop propagation) clears the selection.
+      if (state.sketch && !state.sketch.tool) {
+        state.clearSketchSelection();
+        return;
+      }
       const snap = snapAt(event.clientX, event.clientY);
-      if (snap) storeApi.getState().dispatchSketchEvent({ type: 'click', snap });
+      if (snap) state.dispatchSketchEvent({ type: 'click', snap });
     },
     [snapAt, storeApi],
   );

@@ -1,8 +1,30 @@
-import type { CadEntity, CadEntityPatch, Primitive } from '@swalha-cad/document';
+import { Trash2 } from 'lucide-react';
+import type { CadEntity, CadEntityPatch, Primitive, SketchConstraint, SketchFeature } from '@swalha-cad/document';
 import { useCadStore } from '../store/cad-store-context.js';
-import { selectSelectedEntity } from '../store/cad-store.js';
+import { selectActiveSketch, selectSelectedEntity } from '../store/cad-store.js';
+import { constraintUnit, constraintValue } from '../sketch/constraint-actions.js';
+import { ConstraintStatus } from '../sketch/ConstraintStatus.js';
+import { DimensionEditor } from '../sketch/DimensionEditor.js';
+import { IconButton } from './ui/IconButton.js';
 import { NumericField } from './NumericField.js';
 import { TransformFields } from './TransformFields.js';
+
+const CONSTRAINT_LABEL: Record<SketchConstraint['kind'], string> = {
+  coincident: 'Coincident',
+  horizontal: 'Horizontal',
+  vertical: 'Vertical',
+  distance: 'Distance',
+  radius: 'Radius',
+  angle: 'Angle',
+};
+
+/** A one-line human summary of a constraint, including its dimension where applicable. */
+function constraintSummary(constraint: SketchConstraint): string {
+  const value = constraintValue(constraint);
+  if (value === null) return CONSTRAINT_LABEL[constraint.kind];
+  const unit = constraintUnit(constraint) === 'deg' ? '°' : ' mm';
+  return `${CONSTRAINT_LABEL[constraint.kind]} ${Number.parseFloat(value.toFixed(2))}${unit}`;
+}
 
 interface DimensionField {
   label: string;
@@ -68,19 +90,70 @@ function ContextPanelContent({
 }
 
 /**
- * Right-hand contextual panel: shows dimension/transform editing for whatever is
- * currently selected. Keeps M1's "Properties" accessible name and empty-state
- * copy so the existing browser workflows and their e2e coverage keep working
- * unchanged; sketch/feature-specific editors are added in a later milestone task.
+ * Sketch-mode contextual panel: live solver status, the constraint list (each
+ * row selectable and deletable), and the numeric dimension editor for the
+ * selected dimensional constraint. Every mutation routes through the store's
+ * feature-command history, so undo/redo and the blue/dark/red status convention
+ * stay consistent with the canvas.
+ */
+function SketchContextContent({ sketch }: { sketch: SketchFeature }) {
+  const selectedConstraintId = useCadStore((state) => state.selectedConstraintId);
+  const selectConstraint = useCadStore((state) => state.selectConstraint);
+  const deleteConstraint = useCadStore((state) => state.deleteConstraint);
+
+  return (
+    <div className="context-panel__content">
+      <ConstraintStatus />
+
+      <h3 className="context-panel__section">Constraints</h3>
+      {sketch.constraints.length === 0 ? (
+        <p className="context-panel__empty">Select geometry and apply a constraint.</p>
+      ) : (
+        <ul className="constraint-list">
+          {sketch.constraints.map((constraint) => (
+            <li key={constraint.id} className="constraint-list__row">
+              <button
+                type="button"
+                className="constraint-list__select"
+                aria-pressed={selectedConstraintId === constraint.id}
+                onClick={() => selectConstraint(selectedConstraintId === constraint.id ? null : constraint.id)}
+              >
+                {constraintSummary(constraint)}
+              </button>
+              <IconButton
+                aria-label={`Delete ${CONSTRAINT_LABEL[constraint.kind]} constraint`}
+                variant="ghost"
+                icon={<Trash2 />}
+                onClick={() => deleteConstraint(constraint.id)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 className="context-panel__section">Dimension</h3>
+      <DimensionEditor />
+    </div>
+  );
+}
+
+/**
+ * Right-hand contextual panel: while a sketch is active it shows constraint
+ * status/list/dimension editing; otherwise it shows dimension/transform editing
+ * for the selected body. Keeps M1's "Properties" accessible name and empty-state
+ * copy so the existing browser workflows and their e2e coverage keep working.
  */
 export function ContextPanel() {
   const entity = useCadStore(selectSelectedEntity);
   const updateEntity = useCadStore((state) => state.updateEntity);
+  const sketch = useCadStore(selectActiveSketch);
 
   return (
     <aside className="context-panel" aria-label="Properties">
-      <h2 className="panel-heading">Properties</h2>
-      {entity ? (
+      <h2 className="panel-heading">{sketch ? 'Sketch' : 'Properties'}</h2>
+      {sketch ? (
+        <SketchContextContent sketch={sketch} />
+      ) : entity ? (
         <ContextPanelContent entity={entity} updateEntity={updateEntity} />
       ) : (
         <p className="context-panel__empty">No selection</p>

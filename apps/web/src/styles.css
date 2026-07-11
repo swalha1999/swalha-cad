@@ -482,6 +482,109 @@ body {
   margin-left: auto;
 }
 
+.constraint-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Constraint status readout (context panel) */
+
+.constraint-status {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--shell-border);
+  background: var(--shell-sunken);
+  margin-bottom: 12px;
+}
+
+.constraint-status__headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.constraint-status__headline svg {
+  width: 16px;
+  height: 16px;
+}
+
+.constraint-status--under-constrained .constraint-status__headline {
+  color: var(--primary);
+}
+.constraint-status--fully-constrained .constraint-status__headline {
+  color: oklch(0.2 0 0);
+}
+.constraint-status--conflicting {
+  border-color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 12%, var(--shell-panel));
+}
+.constraint-status--conflicting .constraint-status__headline {
+  color: var(--destructive);
+}
+
+.constraint-status__dof {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--shell-text-muted);
+}
+
+.constraint-status__diagnostics {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--destructive);
+}
+
+.constraint-status__ids {
+  color: var(--shell-text-muted);
+}
+
+/* Constraint list (context panel) */
+
+.constraint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.constraint-list__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.constraint-list__select {
+  flex: 1 1 auto;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--shell-text);
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.constraint-list__select:hover {
+  background: var(--shell-row-hover);
+}
+
+.constraint-list__select[aria-pressed='true'] {
+  background: var(--shell-row-active-bg);
+  border-color: var(--shell-accent);
+}
+
+.dimension-editor__hint {
+  color: var(--shell-text-muted);
+  font-size: 12px;
+}
+
 .sketch-workspace__canvas {
   position: relative;
   flex: 1 1 auto;
@@ -570,6 +673,85 @@ body {
 
 .sketch-overlay__snap--grid {
   stroke: var(--shell-accent);
+}
+
+/* Only the invisible hit targets catch pointer events; the painted geometry and
+   glyph badges stay click-through so selection is unambiguous. */
+.sketch-overlay__line,
+.sketch-overlay__circle,
+.sketch-overlay__point,
+.sketch-overlay__glyphs {
+  pointer-events: none;
+}
+
+/* Solve-status colour convention: under-constrained blue, fully constrained
+   dark, conflicting red. Construction geometry keeps its own reference styling. */
+.sketch-overlay__geometry--under-constrained .sketch-overlay__line:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--under-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+  stroke: var(--primary);
+}
+.sketch-overlay__geometry--under-constrained .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
+  fill: var(--primary);
+}
+.sketch-overlay__geometry--fully-constrained .sketch-overlay__line:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--fully-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+  stroke: oklch(0.2 0 0);
+}
+.sketch-overlay__geometry--fully-constrained .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
+  fill: oklch(0.2 0 0);
+}
+.sketch-overlay__geometry--conflicting .sketch-overlay__line:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--conflicting .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+  stroke: var(--destructive);
+}
+.sketch-overlay__geometry--conflicting .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
+  fill: var(--destructive);
+}
+
+/* Selection highlight sits above the status colour. */
+.sketch-overlay__line.sketch-overlay__selected,
+.sketch-overlay__circle.sketch-overlay__selected {
+  stroke: #f5a623;
+  stroke-width: 3;
+}
+.sketch-overlay__point.sketch-overlay__selected {
+  fill: #f5a623;
+}
+
+/* Invisible wide hit targets so points/lines/circles are easy to click and focus. */
+.sketch-overlay__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.sketch-overlay__hit--point {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+.sketch-overlay__hit--circle {
+  fill: none;
+  pointer-events: stroke;
+}
+.sketch-overlay__hit:focus-visible {
+  stroke: var(--ring);
+  stroke-opacity: 0.55;
+  outline: none;
+}
+
+/* Constraint glyph badges. */
+.sketch-glyph__badge {
+  fill: color-mix(in oklch, var(--shell-panel) 85%, transparent);
+  stroke: var(--shell-border);
+  stroke-width: 0.5;
+}
+.sketch-glyph__text {
+  fill: var(--foreground);
+  font-size: 10px;
+  font-weight: 600;
+  dominant-baseline: middle;
 }
 
 .viewport__canvas {
@@ -769,6 +951,19 @@ body {
 
 .status-bar__item {
   white-space: nowrap;
+}
+
+.status-bar__solve {
+  font-weight: 600;
+}
+.status-bar__solve--under-constrained {
+  color: var(--primary);
+}
+.status-bar__solve--fully-constrained {
+  color: var(--shell-text);
+}
+.status-bar__solve--conflicting {
+  color: var(--destructive);
 }
 
 /* Shared form fields (used by the context panel) */
