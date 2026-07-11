@@ -28,4 +28,5 @@ export {
   triangleArea,
 } from './mesh-validation.js';
 export { buildBoxMesh } from './primitives/box.js';
+export { buildCylinderMesh } from './primitives/cylinder.js';
 
