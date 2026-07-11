@@ -297,6 +297,37 @@ V1 files migrate in memory to V2 by adding `features: []`; saves always emit V2 
 
 **Commit:** `feat: add sketch constraints ui`
 
+### Task 10A: Expand to an Onshape-class sketch toolbox and free-coordinate canvas
+
+**Objective:** Remove mandatory grid snapping and provide the common sketch creation/editing tools expected from the supplied Onshape reference.
+
+**Canvas behavior:**
+- The grid is a visual aid only and can be shown/hidden.
+- Pointer coordinates remain continuous floating-point sketch coordinates; geometry is never quantized to grid spacing.
+- Optional snap toggles are independent: grid, endpoints, midpoints, centers, intersections, horizontal/vertical inference, and origin.
+- Holding a temporary modifier bypasses all snapping for exact free placement.
+- Dimensions and constraints—not the grid—define final geometry.
+
+**Tools:**
+- Existing: point, connected line, corner rectangle, center-radius circle, construction mode.
+- Add: center rectangle, 3-point rectangle, 3-point circle, center-point arc, 3-point arc, tangent arc, polygon, spline/polyline, slot.
+- Modify: trim, extend, split, offset, mirror, linear pattern, circular pattern, move/rotate sketch entities, delete.
+- Constraint/dimension access remains icon-first in the same dense sketch toolbar, with overflow groups and keyboard-accessible tooltips/shortcuts.
+
+**Files:**
+- Modify: `apps/web/src/sketch/useSketchInteraction.ts`
+- Modify: `apps/web/src/sketch/SketchWorkspace.tsx`
+- Modify: `apps/web/src/sketch/SketchOverlay.tsx`
+- Create/modify: `apps/web/src/sketch/tools/*.ts`
+- Create: `apps/web/src/sketch/SnapSettings.tsx`
+- Create: `apps/web/src/sketch/SketchToolGroups.tsx`
+- Modify document/geometry schema only for newly supported curve/entity kinds that cannot be represented safely by existing entities.
+- Tests: each tool state machine, continuous coordinates, independent snapping toggles, modifier bypass, editing operations, keyboard accessibility, and Playwright free-placement workflow.
+
+**Acceptance:** A user can place geometry at arbitrary non-grid coordinates and reproduce the core tool categories visible in the supplied Onshape sketch toolbar. Grid display and grid snapping are separate opt-in settings.
+
+**Commit:** `feat: expand sketch creation and editing tools`
+
 ### Task 11: Add Extrude feature workflow
 
 **Objective:** Create and edit extrusion from a selected valid profile.
