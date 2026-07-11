@@ -61,6 +61,15 @@ export type { LoopSegment, SelfIntersection } from './sketch/intersections.js';
 export { segmentsIntersect, findLoopSelfIntersections } from './sketch/intersections.js';
 export type { LineLoopProfile, CircleProfile, SketchProfile, ProfileResult } from './sketch/profile.js';
 export { detectSketchProfile } from './sketch/profile.js';
+// Watertight profile extrusion: sweep a sketch's single detected closed
+// profile (one line loop or one circle) along its plane normal into an indexed
+// hard-shaded solid, triangulating caps deterministically and generating side
+// walls directly. Reuses the plane/profile APIs above and the mesh-validation
+// invariants (watertight, outward winding, unit normals) as its contract.
+export type { ProfileTriangle } from './features/triangulate-profile.js';
+export { triangulateSimplePolygon } from './features/triangulate-profile.js';
+export type { ExtrudeOptions, ExtrudeErrorCode, ExtrudeError, ExtrudeResult } from './features/extrude.js';
+export { extrudeSketch } from './features/extrude.js';
 // Scoped deterministic geometric constraint solver: solves M2's supported
 // coincidence/horizontal/vertical/distance/radius/angle constraints over point
 // coordinates and circle radii with a damped Gauss-Newton iteration, then
