@@ -43,6 +43,21 @@ pnpm test
 pnpm build
 ```
 
+## MCP adapter
+
+`apps/mcp` is a stdio MCP server that owns a single `.swcad.json` file for its
+process lifetime and exposes it to AI agents through the same `CadCommand`
+reducer the browser UI uses. Start it against a document path:
+
+```bash
+pnpm --filter @swalha-cad/mcp start -- path/to/design.swcad.json
+```
+
+If the path does not exist yet, an empty V1 document is created and persisted
+before the server starts accepting requests. Available tools: `create_primitive`,
+`list_entities`, `update_entity`, `delete_entity`, and `export_stl` (binary STL,
+millimetres). Every write is validated with Zod and applied atomically.
+
 ## License
 
 [MIT](./LICENSE)
