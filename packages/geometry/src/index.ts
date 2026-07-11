@@ -43,4 +43,22 @@ export {
   sketchPointToModel,
   sketchVectorToModel,
 } from './sketch/plane.js';
+// Sketch topology and profile detection: validate a sketch's non-construction
+// line/circle entities and identify the single closed profile (one line loop
+// or one standalone circle) that a later extrude feature can consume.
+export type {
+  SketchPointEntity,
+  SketchLineEntity,
+  SketchCircleEntity,
+  SketchEntityIndex,
+  TopologyIssueKind,
+  TopologyIssue,
+  ClosedLineLoop,
+  LineLoopTopologyResult,
+} from './sketch/topology.js';
+export { indexSketchEntities, analyzeLineLoopTopology } from './sketch/topology.js';
+export type { LoopSegment, SelfIntersection } from './sketch/intersections.js';
+export { segmentsIntersect, findLoopSelfIntersections } from './sketch/intersections.js';
+export type { LineLoopProfile, CircleProfile, SketchProfile, ProfileResult } from './sketch/profile.js';
+export { detectSketchProfile } from './sketch/profile.js';
 
