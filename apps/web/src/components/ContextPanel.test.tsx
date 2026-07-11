@@ -99,4 +99,34 @@ describe('ContextPanel', () => {
     const updated = store.getState().document.entities.find((entity) => entity.id === 'box-1');
     expect(updated?.transform).toEqual({ translation: [10, 0, 0], rotationDeg: [0, 0, 0], scale: [1, 2, 1] });
   });
+
+  it('offers no trash action when nothing is selected', () => {
+    renderPanel();
+    expect(screen.queryByRole('button', { name: /^Delete / })).not.toBeInTheDocument();
+  });
+
+  it('deletes the selected body through the contextual trash action', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().selectEntity('box-1');
+    renderPanel(store);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Box' }));
+
+    expect(store.getState().document.entities.some((entity) => entity.id === 'box-1')).toBe(false);
+  });
+
+  it('shows a selected feature summary with a trash action', () => {
+    const store = createCadStore({
+      schemaVersion: 2,
+      units: 'mm',
+      entities: [],
+      features: [{ id: 'sk-1', kind: 'sketch', name: 'Sketch 1', plane: 'XY', entities: [], constraints: [], visible: true }],
+    });
+    store.getState().selectFeature('sk-1');
+    renderPanel(store);
+
+    expect(screen.getByDisplayValue('Sketch 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Sketch 1' }));
+    expect(store.getState().document.features).toHaveLength(0);
+  });
 });

@@ -13,6 +13,7 @@ function buildFakeScene(onSelectArg: (id: string | null) => void) {
     onSelectArg,
     updateDocument: vi.fn(),
     setSelection: vi.fn(),
+    setHover: vi.fn(),
     setProjection: vi.fn(),
     setStandardView: vi.fn(),
     resize: vi.fn(),
@@ -121,6 +122,17 @@ describe('Viewport', () => {
     });
 
     expect(store.getState().selectedEntityId).toBe('cylinder-1');
+  });
+
+  it('pushes store hover changes into the scene', () => {
+    sceneState.instances = [];
+    const { store } = renderViewport();
+
+    act(() => {
+      store.getState().setHovered('box-1');
+    });
+
+    expect(sceneState.instances[0]!.setHover).toHaveBeenCalledWith('box-1');
   });
 
   it("wires the scene's onTransformChange callback into the store's updateEntity", () => {

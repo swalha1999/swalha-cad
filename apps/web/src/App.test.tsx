@@ -9,6 +9,7 @@ vi.mock('./viewport/create-viewport-scene.js', () => ({
       scene: {},
       updateDocument: vi.fn(),
       setSelection: vi.fn(),
+      setHover: vi.fn(),
       setProjection: vi.fn(),
       setStandardView: vi.fn(),
       resize: vi.fn(),
@@ -68,6 +69,27 @@ describe('App', () => {
     fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
 
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+
+  it('deletes the selected body when Delete is pressed in the viewport context', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Box' }));
+
+    fireEvent.keyDown(window, { key: 'Delete' });
+
+    expect(screen.queryByRole('button', { name: 'Box' })).not.toBeInTheDocument();
+  });
+
+  it('does not delete the selection when Backspace is typed inside a numeric field', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Box' }));
+    // The properties panel now shows editable dimension fields for the box.
+    const widthField = screen.getByLabelText('Width');
+
+    fireEvent.keyDown(widthField, { key: 'Backspace' });
+
+    // The box row is still present — Backspace edited text, it did not delete geometry.
+    expect(screen.getByRole('button', { name: 'Box' })).toBeInTheDocument();
   });
 
   it('collapses and re-expands the left feature tree panel', () => {

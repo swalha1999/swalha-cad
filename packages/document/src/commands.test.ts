@@ -237,4 +237,58 @@ describe('parseCadCommand', () => {
       expect(roundTripped).toEqual(command);
     });
   });
+
+  describe('batch commands', () => {
+    it('accepts a batch of delete commands', () => {
+      const command = {
+        type: 'batch',
+        commands: [
+          { type: 'feature.delete', id: 'extrude-1' },
+          { type: 'feature.delete', id: 'sketch-1' },
+        ],
+      };
+
+      const result = parseCadCommand(command);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(command);
+      }
+    });
+
+    it('accepts an empty batch', () => {
+      expect(parseCadCommand({ type: 'batch', commands: [] }).success).toBe(true);
+    });
+
+    it('accepts a nested batch', () => {
+      const command = {
+        type: 'batch',
+        commands: [{ type: 'batch', commands: [{ type: 'entity.delete', id: 'e1' }] }],
+      };
+
+      expect(parseCadCommand(command).success).toBe(true);
+    });
+
+    it('rejects a batch containing an invalid sub-command', () => {
+      const command = { type: 'batch', commands: [{ type: 'entity.rename', id: 'e1' }] };
+
+      expect(parseCadCommand(command).success).toBe(false);
+    });
+
+    it('round-trips a batch command through JSON without data loss', () => {
+      const command = {
+        type: 'batch',
+        commands: [
+          { type: 'feature.delete', id: 'extrude-1' },
+          { type: 'feature.delete', id: 'sketch-1' },
+        ],
+      };
+
+      const result = parseCadCommand(command);
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(JSON.parse(JSON.stringify(result.data))).toEqual(command);
+    });
+  });
 });

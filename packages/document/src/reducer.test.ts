@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, UnknownEntityError, UnknownFeatureError } from './reducer.js';
+import { applyCommandToHistory, createHistory, undo } from './history.js';
 import type { CadDocumentV2, CadEntity, ExtrudeFeature, SketchFeature } from './types.js';
 
 function boxEntity(id: string): CadEntity {
@@ -235,5 +236,70 @@ describe('applyCommand — M2 feature commands', () => {
       expect(error).toBeInstanceOf(UnknownFeatureError);
       expect((error as UnknownFeatureError).featureId).toBe('missing-feature');
     }
+  });
+});
+
+describe('applyCommand — batch', () => {
+  it('applies every sub-command in order against one document', () => {
+    const document: CadDocumentV2 = {
+      ...emptyDocument(),
+      features: [circleSketch('sketch-1'), extrudeFeature('extrude-1', 'sketch-1')],
+    };
+
+    const next = applyCommand(document, {
+      type: 'batch',
+      commands: [
+        { type: 'feature.delete', id: 'extrude-1' },
+        { type: 'feature.delete', id: 'sketch-1' },
+      ],
+    });
+
+    expect(next.features).toEqual([]);
+  });
+
+  it('is atomic: a throw on any sub-command leaves the original document untouched', () => {
+    const document: CadDocumentV2 = { ...emptyDocument(), entities: [boxEntity('entity-1')] };
+
+    expect(() =>
+      applyCommand(document, {
+        type: 'batch',
+        commands: [
+          { type: 'entity.delete', id: 'entity-1' },
+          { type: 'entity.delete', id: 'missing' },
+        ],
+      }),
+    ).toThrow(UnknownEntityError);
+    expect(document.entities).toEqual([boxEntity('entity-1')]);
+  });
+
+  it('flattens a nested batch', () => {
+    const document: CadDocumentV2 = {
+      ...emptyDocument(),
+      entities: [boxEntity('entity-1'), boxEntity('entity-2')],
+    };
+
+    const next = applyCommand(document, {
+      type: 'batch',
+      commands: [{ type: 'batch', commands: [{ type: 'entity.delete', id: 'entity-1' }] }, { type: 'entity.delete', id: 'entity-2' }],
+    });
+
+    expect(next.entities).toEqual([]);
+  });
+
+  it('records one undoable entry for a batch through history', () => {
+    const document: CadDocumentV2 = {
+      ...emptyDocument(),
+      features: [circleSketch('sketch-1'), extrudeFeature('extrude-1', 'sketch-1')],
+    };
+    const history = applyCommandToHistory(createHistory(document), {
+      type: 'batch',
+      commands: [
+        { type: 'feature.delete', id: 'extrude-1' },
+        { type: 'feature.delete', id: 'sketch-1' },
+      ],
+    });
+
+    expect(history.present.features).toEqual([]);
+    expect(undo(history).present.features).toEqual([circleSketch('sketch-1'), extrudeFeature('extrude-1', 'sketch-1')]);
   });
 });

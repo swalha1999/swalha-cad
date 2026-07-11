@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react';
-import type { CadEntity, CadEntityPatch, Primitive, SketchConstraint, SketchFeature } from '@swalha-cad/document';
+import type { CadEntity, CadEntityPatch, CadFeature, Primitive, SketchConstraint, SketchFeature } from '@swalha-cad/document';
 import { useCadStore } from '../store/cad-store-context.js';
-import { selectActiveSketch, selectSelectedEntity } from '../store/cad-store.js';
+import { selectActiveSketch, selectSelectedEntity, selectSelectedFeature } from '../store/cad-store.js';
 import { constraintUnit, constraintValue } from '../sketch/constraint-actions.js';
 import { ConstraintStatus } from '../sketch/ConstraintStatus.js';
 import { DimensionEditor } from '../sketch/DimensionEditor.js';
@@ -137,24 +137,60 @@ function SketchContextContent({ sketch }: { sketch: SketchFeature }) {
   );
 }
 
+const FEATURE_KIND_LABEL: Record<CadFeature['kind'], string> = {
+  sketch: 'Sketch feature',
+  extrude: 'Extruded solid',
+};
+
+/** Read-only summary for a selected feature (sketch or extrude); it is deleted via the header trash action. */
+function FeatureContextContent({ feature }: { feature: CadFeature }) {
+  return (
+    <div className="context-panel__content">
+      <div className="field">
+        <label htmlFor="feature-name">Name</label>
+        <input id="feature-name" type="text" readOnly value={feature.name} />
+      </div>
+      <p className="context-panel__hint">{FEATURE_KIND_LABEL[feature.kind]}</p>
+    </div>
+  );
+}
+
 /**
  * Right-hand contextual panel: while a sketch is active it shows constraint
  * status/list/dimension editing; otherwise it shows dimension/transform editing
- * for the selected body. Keeps M1's "Properties" accessible name and empty-state
- * copy so the existing browser workflows and their e2e coverage keep working.
+ * for the selected body, a summary for a selected feature, and a contextual
+ * trash action to delete the current selection. Keeps M1's "Properties"
+ * accessible name and empty-state copy so the existing browser workflows and
+ * their e2e coverage keep working.
  */
 export function ContextPanel() {
   const entity = useCadStore(selectSelectedEntity);
+  const feature = useCadStore(selectSelectedFeature);
   const updateEntity = useCadStore((state) => state.updateEntity);
+  const deleteSelected = useCadStore((state) => state.deleteSelected);
   const sketch = useCadStore(selectActiveSketch);
+
+  const selectionName = !sketch ? (entity?.name ?? feature?.name ?? null) : null;
 
   return (
     <aside className="context-panel" aria-label="Properties">
-      <h2 className="panel-heading">{sketch ? 'Sketch' : 'Properties'}</h2>
+      <div className="context-panel__header">
+        <h2 className="panel-heading">{sketch ? 'Sketch' : 'Properties'}</h2>
+        {selectionName ? (
+          <IconButton
+            aria-label={`Delete ${selectionName}`}
+            variant="ghost"
+            icon={<Trash2 />}
+            onClick={() => deleteSelected()}
+          />
+        ) : null}
+      </div>
       {sketch ? (
         <SketchContextContent sketch={sketch} />
       ) : entity ? (
         <ContextPanelContent entity={entity} updateEntity={updateEntity} />
+      ) : feature ? (
+        <FeatureContextContent feature={feature} />
       ) : (
         <p className="context-panel__empty">No selection</p>
       )}

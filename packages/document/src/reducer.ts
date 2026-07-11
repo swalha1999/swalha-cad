@@ -72,6 +72,11 @@ export function applyCommand(document: CadDocumentV2, command: CadCommand): CadD
       return { ...document, features: document.features.filter((feature) => feature.id !== command.id) };
     }
 
+    case 'batch':
+      // Applied left-to-right against one document; a throw on any step aborts
+      // the whole batch (the caller never sees a partially applied document).
+      return command.commands.reduce((current, inner) => applyCommand(current, inner), document);
+
     default: {
       const exhaustive: never = command;
       throw new Error(`Unknown command type: ${JSON.stringify(exhaustive)}`);

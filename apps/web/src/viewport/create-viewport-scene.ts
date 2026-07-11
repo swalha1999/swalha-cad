@@ -7,7 +7,7 @@ import {
   resizeOrthographicCamera,
   resizePerspectiveCamera,
 } from '@swalha-cad/renderer';
-import type { Material, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, Scene } from 'three';
+import type { Material, Mesh, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, Scene } from 'three';
 import { AmbientLight, DirectionalLight, GridHelper, Vector3 } from 'three';
 import type { CameraProjection } from '../store/cad-store.js';
 import { createOrbitControls } from './create-orbit-controls.js';
@@ -23,16 +23,23 @@ export interface ViewportSceneOptions {
   canvas: HTMLCanvasElement;
   document: CadDocumentV2;
   projection: CameraProjection;
+  /** Initially selected body id — an entity id or a derived feature body's id. */
   selectedEntityId: string | null;
   viewport: Viewport;
-  onSelect: (entityId: string | null) => void;
+  /** Called with the picked body id (entity or derived feature body), or `null` on an empty-space click. */
+  onSelect: (bodyId: string | null) => void;
   onTransformChange: (entityId: string, transform: Transform) => void;
+  /** Optional: called when the hovered body changes (id or `null`), for tree/viewport hover sync. */
+  onHover?: (bodyId: string | null) => void;
 }
 
 export interface ViewportScene {
   readonly scene: Scene;
   updateDocument(document: CadDocumentV2): void;
-  setSelection(entityId: string | null): void;
+  /** Highlights the given body id (entity or derived feature body); attaches the move gizmo only for entities. */
+  setSelection(bodyId: string | null): void;
+  /** Applies the softer hover highlight to the given body id (or clears it with `null`). */
+  setHover(bodyId: string | null): void;
   setProjection(projection: CameraProjection): void;
   resize(viewport: Viewport): void;
   setStandardView(view: StandardView): void;
@@ -41,6 +48,7 @@ export interface ViewportScene {
 }
 
 const HIGHLIGHT_EMISSIVE_HEX = 0x3b5bfd;
+const HOVER_EMISSIVE_HEX = 0x22357a;
 const NO_HIGHLIGHT_HEX = 0x000000;
 const DEFAULT_CAMERA_POSITION = [140, 110, 160] as const;
 const DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT = 220;
@@ -78,6 +86,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   let currentProjection = options.projection;
   let currentDocument = options.document;
   let currentSelectedId = options.selectedEntityId;
+  let currentHoveredId: string | null = null;
   const orthoViewHeight = DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT;
 
   // Unselected geometry uses MeshStandardMaterial, which renders pure black without
@@ -98,8 +107,27 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   sceneSync.scene.add(transformControls.getHelper());
   let attachedEntityId: string | null = null;
 
+  /** A body id names an entity when it matches one; otherwise it is a derived feature body. */
+  function isEntityBody(id: string): boolean {
+    return currentDocument.entities.some((entity) => entity.id === id);
+  }
+
+  /** Visits every synced body object — retained primitives plus derived feature solids. */
+  function forEachBody(visit: (id: string, object: Mesh) => void): void {
+    for (const entity of currentDocument.entities) {
+      const object = sceneSync.objectFor(entity.id);
+      if (object) visit(entity.id, object);
+    }
+    for (const feature of currentDocument.features) {
+      if (feature.kind !== 'extrude') continue;
+      const object = sceneSync.objectFor(feature.id);
+      if (object) visit(feature.id, object);
+    }
+  }
+
   function syncGizmoAttachment(): void {
-    const object = currentSelectedId ? sceneSync.objectFor(currentSelectedId) : undefined;
+    // Only entities carry an editable transform gizmo; derived feature solids do not.
+    const object = currentSelectedId && isEntityBody(currentSelectedId) ? sceneSync.objectFor(currentSelectedId) : undefined;
     if (object) {
       transformControls.attach(object);
       attachedEntityId = currentSelectedId;
@@ -116,24 +144,24 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     }
   });
 
-  function tagEntityIds(): void {
-    for (const entity of currentDocument.entities) {
-      const object = sceneSync.objectFor(entity.id);
-      if (object) object.userData['entityId'] = entity.id;
-    }
+  /** Tags every body mesh (entity or derived feature body) with its id so raycasting can identify it. */
+  function tagBodyIds(): void {
+    forEachBody((id, object) => {
+      object.userData['entityId'] = id;
+    });
   }
 
   function applyHighlights(): void {
-    for (const entity of currentDocument.entities) {
-      const object = sceneSync.objectFor(entity.id);
-      if (!object) continue;
+    forEachBody((id, object) => {
       const material = object.material as MeshStandardMaterial;
-      material.emissive.setHex(entity.id === currentSelectedId ? HIGHLIGHT_EMISSIVE_HEX : NO_HIGHLIGHT_HEX);
-    }
+      const hex =
+        id === currentSelectedId ? HIGHLIGHT_EMISSIVE_HEX : id === currentHoveredId ? HOVER_EMISSIVE_HEX : NO_HIGHLIGHT_HEX;
+      material.emissive.setHex(hex);
+    });
   }
 
   sceneSync.sync(currentDocument);
-  tagEntityIds();
+  tagBodyIds();
   applyHighlights();
   syncGizmoAttachment();
 
@@ -145,8 +173,28 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
 
   let pointerDown: { x: number; y: number } | null = null;
 
+  /** Raycasts the pointer position and returns the body id under it, or `null`. */
+  function pickAt(clientX: number, clientY: number): string | null {
+    const rect = options.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    activeCamera.updateMatrixWorld(true);
+    sceneSync.scene.updateMatrixWorld(true);
+    return pickEntityId({ camera: activeCamera, scene: sceneSync.scene, ndcX, ndcY }) ?? null;
+  }
+
   function handlePointerDown(event: PointerEvent): void {
     pointerDown = { x: event.clientX, y: event.clientY };
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    if (!options.onHover) return;
+    // Skip hover picking while the user is pressing (orbiting/dragging).
+    if (pointerDown) return;
+    const bodyId = pickAt(event.clientX, event.clientY);
+    if (bodyId === currentHoveredId) return;
+    options.onHover(bodyId);
   }
 
   function handlePointerUp(event: PointerEvent): void {
@@ -155,20 +203,15 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     pointerDown = null;
     if (!isClick(start, { x: event.clientX, y: event.clientY })) return;
 
-    const rect = options.canvas.getBoundingClientRect();
-    const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
     // Raycasting reads matrixWorld, which is otherwise only refreshed inside
-    // the render loop; update it explicitly so a click is accurate even
+    // the render loop; pickAt updates it explicitly so a click is accurate even
     // before the next animation frame has drawn.
-    activeCamera.updateMatrixWorld(true);
-    sceneSync.scene.updateMatrixWorld(true);
-    const entityId = pickEntityId({ camera: activeCamera, scene: sceneSync.scene, ndcX, ndcY });
-    options.onSelect(entityId ?? null);
+    options.onSelect(pickAt(event.clientX, event.clientY));
   }
 
   options.canvas.addEventListener('pointerdown', handlePointerDown);
   options.canvas.addEventListener('pointerup', handlePointerUp);
+  options.canvas.addEventListener('pointermove', handlePointerMove);
 
   return {
     scene: sceneSync.scene,
@@ -176,15 +219,22 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     updateDocument(document) {
       currentDocument = document;
       sceneSync.sync(document);
-      tagEntityIds();
+      // Drop a hover pointing at a body that no longer exists (e.g. after a delete).
+      if (currentHoveredId && !sceneSync.objectFor(currentHoveredId)) currentHoveredId = null;
+      tagBodyIds();
       applyHighlights();
       syncGizmoAttachment();
     },
 
-    setSelection(entityId) {
-      currentSelectedId = entityId;
+    setSelection(bodyId) {
+      currentSelectedId = bodyId;
       applyHighlights();
       syncGizmoAttachment();
+    },
+
+    setHover(bodyId) {
+      currentHoveredId = bodyId;
+      applyHighlights();
     },
 
     setProjection(projection) {
@@ -225,6 +275,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       cancelAnimationFrame(frameId);
       options.canvas.removeEventListener('pointerdown', handlePointerDown);
       options.canvas.removeEventListener('pointerup', handlePointerUp);
+      options.canvas.removeEventListener('pointermove', handlePointerMove);
       controls.dispose();
       sceneSync.scene.remove(transformControls.getHelper());
       transformControls.dispose();

@@ -1,9 +1,22 @@
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CadStoreProvider } from '../store/cad-store-context.js';
 import { createCadStore } from '../store/cad-store.js';
 import { buildTestDocument } from '../test/fixtures.js';
 import { FeatureTree } from './FeatureTree.js';
+
+function documentWithFeatures(): CadDocumentV2 {
+  return {
+    schemaVersion: 2,
+    units: 'mm',
+    entities: buildTestDocument().entities,
+    features: [
+      { id: 'sk-1', kind: 'sketch', name: 'Sketch 1', plane: 'XY', entities: [], constraints: [], visible: true },
+      { id: 'ex-1', kind: 'extrude', name: 'Extrude 1', sketchId: 'sk-1', depth: 10, direction: 'normal', visible: true },
+    ],
+  };
+}
 
 function renderFeatureTree(store = createCadStore(buildTestDocument())) {
   render(
@@ -66,5 +79,64 @@ describe('FeatureTree', () => {
 
     expect(screen.queryByRole('button', { name: 'Origin' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Front Plane (XZ)' })).not.toBeInTheDocument();
+  });
+
+  it('selects a feature in the store when its row is clicked', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Extrude 1' }));
+
+    expect(store.getState().selectedFeatureId).toBe('ex-1');
+    expect(store.getState().selectedEntityId).toBeNull();
+  });
+
+  it('updates the shared hover state when the pointer enters and leaves a row', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+    const row = screen.getByRole('button', { name: 'Sketch 1' });
+
+    fireEvent.mouseEnter(row);
+    expect(store.getState().hoveredId).toBe('sk-1');
+
+    fireEvent.mouseLeave(row);
+    expect(store.getState().hoveredId).toBeNull();
+  });
+
+  it('right-clicking an unselected row selects it and opens a delete context menu', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Extrude 1' }));
+
+    expect(store.getState().selectedFeatureId).toBe('ex-1');
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Delete Extrude 1' })).toBeInTheDocument();
+  });
+
+  it('deletes an independent feature immediately via the context menu', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Extrude 1' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Extrude 1' }));
+
+    expect(store.getState().document.features.some((feature) => feature.id === 'ex-1')).toBe(false);
+    expect(store.getState().pendingDeletion).toBeNull();
+  });
+
+  it('opens the impact confirmation (not an immediate delete) for a sketch with a dependent', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Sketch 1' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Sketch 1' }));
+
+    expect(store.getState().document.features).toHaveLength(2);
+    expect(store.getState().pendingDeletion?.dependents).toEqual([{ id: 'ex-1', name: 'Extrude 1' }]);
+  });
+
+  it('deletes a body immediately via the context menu', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Cylinder' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete Cylinder' }));
+
+    expect(store.getState().document.entities.some((entity) => entity.id === 'cylinder-1')).toBe(false);
   });
 });

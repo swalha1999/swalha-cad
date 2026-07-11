@@ -21,8 +21,13 @@ export function Viewport() {
   const cadDocument = useCadStore((state) => state.document);
   const projection = useCadStore((state) => state.cameraProjection);
   const selectedEntityId = useCadStore((state) => state.selectedEntityId);
+  const selectedFeatureId = useCadStore((state) => state.selectedFeatureId);
+  const hoveredId = useCadStore((state) => state.hoveredId);
   const sketchPlane = useCadStore((state) => state.sketch?.plane ?? null);
   const storeApi = useCadStoreApi();
+
+  // A single highlighted body: the selected feature's derived solid, or the selected primitive.
+  const selectedBodyId = selectedFeatureId ?? selectedEntityId;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -35,13 +40,14 @@ export function Viewport() {
       canvas,
       document: initial.document,
       projection: initial.cameraProjection,
-      selectedEntityId: initial.selectedEntityId,
+      selectedEntityId: initial.selectedFeatureId ?? initial.selectedEntityId,
       viewport: {
         width: clampToAtLeastOnePixel(rect.width),
         height: clampToAtLeastOnePixel(rect.height),
       },
-      onSelect: (entityId) => storeApi.getState().selectEntity(entityId),
+      onSelect: (bodyId) => storeApi.getState().selectBody(bodyId),
       onTransformChange: (entityId, transform) => storeApi.getState().updateEntity(entityId, { transform }),
+      onHover: (bodyId) => storeApi.getState().setHovered(bodyId),
     });
     sceneRef.current = scene;
 
@@ -69,8 +75,12 @@ export function Viewport() {
   }, [cadDocument]);
 
   useEffect(() => {
-    sceneRef.current?.setSelection(selectedEntityId);
-  }, [selectedEntityId]);
+    sceneRef.current?.setSelection(selectedBodyId);
+  }, [selectedBodyId]);
+
+  useEffect(() => {
+    sceneRef.current?.setHover(hoveredId);
+  }, [hoveredId]);
 
   useEffect(() => {
     sceneRef.current?.setProjection(projection);

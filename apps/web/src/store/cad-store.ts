@@ -5,6 +5,8 @@ import type {
   CadEntityPatch,
   CadFeature,
   CommandHistory,
+  DeletionPlan,
+  DeletionTarget,
   Primitive,
   SketchConstraint,
   SketchFeature,
@@ -17,6 +19,7 @@ import {
   canUndo as computeCanUndo,
   createHistory,
   parseCadCommand,
+  planDeletion,
   redo as historyRedo,
   undo as historyUndo,
 } from '@swalha-cad/document';
@@ -24,6 +27,7 @@ import type { SolveDiagnostic, SolveStatus } from '@swalha-cad/geometry';
 import { solveSketch } from '@swalha-cad/geometry';
 import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
+import { removeSketchEntities } from '../sketch/delete.js';
 import type { NewConstraint } from '../sketch/constraint-actions.js';
 import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
 import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
@@ -74,6 +78,20 @@ export interface CadStoreState {
   document: CadDocumentV2;
   history: CommandHistory;
   selectedEntityId: string | null;
+  /** Selected feature id (a sketch or a derived solid's owning feature); mutually exclusive with {@link selectedEntityId}. */
+  selectedFeatureId: string | null;
+  /**
+   * Body/feature id under hover, synchronized between the viewport and the
+   * feature tree so pointing at one visibly highlights the other. Purely
+   * transient feedback — never routed through history.
+   */
+  hoveredId: string | null;
+  /**
+   * A resolved deletion awaiting confirmation because it would cascade to
+   * downstream dependents; `null` when no impact dialog is open. Independent
+   * deletions never populate this — they apply immediately.
+   */
+  pendingDeletion: DeletionPlan | null;
   cameraProjection: CameraProjection;
   canUndo: boolean;
   canRedo: boolean;
@@ -94,6 +112,26 @@ export interface CadStoreState {
   /** Whether the sketch grid is drawn. Purely a visual aid — independent of grid snapping. */
   gridVisible: boolean;
   selectEntity: (id: string | null) => void;
+  /** Selects (or clears with `null`) a feature; validates the id and clears any entity selection. */
+  selectFeature: (id: string | null) => void;
+  /** Selects whichever object a body id names — an entity, or the feature that owns a derived solid — clearing selection when `null`. */
+  selectBody: (bodyId: string | null) => void;
+  /** Clears both entity and feature selection (e.g. a click on empty viewport). */
+  clearSelection: () => void;
+  /** Sets (or clears) the hovered body/feature id shared by the viewport and tree. */
+  setHovered: (id: string | null) => void;
+  /**
+   * Deletes the current selection, resolving downstream dependents: independent
+   * objects delete immediately; a feature with dependents opens an impact
+   * confirmation instead. No-op when nothing is selected.
+   */
+  deleteSelected: () => void;
+  /** Requests deletion of a specific target (used by the tree context menu / trash action). */
+  requestDelete: (target: DeletionTarget) => void;
+  /** Applies the pending cascade deletion as one atomic transaction. */
+  confirmDeletion: () => void;
+  /** Dismisses the pending deletion without changing the document. */
+  cancelDeletion: () => void;
   setCameraProjection: (projection: CameraProjection) => void;
   createEntity: (kind: Primitive['kind']) => string;
   updateEntity: (id: string, patch: CadEntityPatch) => boolean;
@@ -122,6 +160,13 @@ export interface CadStoreState {
   editConstraintValue: (id: string, value: number) => ConstraintOutcome;
   /** Removes a constraint via a `feature.update` command and relaxes the solve status. */
   deleteConstraint: (id: string) => void;
+  /**
+   * Deletes the active sketch's current selection through one undoable
+   * `feature.update`: selected entities (cascading to dependent geometry and
+   * cleaning constraints that reference removed geometry) when any are selected,
+   * otherwise the selected constraint. No-op when nothing is selected.
+   */
+  deleteSketchSelection: () => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
   /** Sets one snap toggle to a specific value. */
@@ -168,6 +213,20 @@ function nextFeatureName(features: readonly CadFeature[], base: string): string 
 function reconcileSelection(document: CadDocumentV2, selectedEntityId: string | null): string | null {
   if (selectedEntityId === null) return null;
   return document.entities.some((entity) => entity.id === selectedEntityId) ? selectedEntityId : null;
+}
+
+/** Drops a feature selection that no longer refers to a feature in the document, e.g. after an undo. */
+function reconcileFeatureSelection(document: CadDocumentV2, selectedFeatureId: string | null): string | null {
+  if (selectedFeatureId === null) return null;
+  return document.features.some((feature) => feature.id === selectedFeatureId) ? selectedFeatureId : null;
+}
+
+/** Drops a hover that no longer refers to any entity or feature in the document. */
+function reconcileHover(document: CadDocumentV2, hoveredId: string | null): string | null {
+  if (hoveredId === null) return null;
+  const present =
+    document.entities.some((entity) => entity.id === hoveredId) || document.features.some((feature) => feature.id === hoveredId);
+  return present ? hoveredId : null;
 }
 
 /** The first point in a sketch, held fixed by the solver so an otherwise mobile sketch can become fully constrained. */
@@ -281,10 +340,34 @@ export interface CadStoreOptions {
 export function createCadStore(document: CadDocumentV2 = createSeedDocument(), options: CadStoreOptions = {}) {
   const createId = options.createId ?? (() => crypto.randomUUID());
 
-  return createStore<CadStoreState>((set, get) => ({
+  return createStore<CadStoreState>((set, get) => {
+    /**
+     * Applies a resolved deletion plan (single command or atomic batch) through
+     * history as one undoable entry, then reconciles selection/hover/pending
+     * state against the resulting document. Never mutates renderer state.
+     */
+    function commitDeletion(plan: DeletionPlan): void {
+      const state = get();
+      const nextHistory = applyCommandToHistory(state.history, plan.command);
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
+        selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
+        hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        pendingDeletion: null,
+      });
+    }
+
+    return {
     document,
     history: createHistory(document),
     selectedEntityId: null,
+    selectedFeatureId: null,
+    hoveredId: null,
+    pendingDeletion: null,
     cameraProjection: 'perspective',
     canUndo: false,
     canRedo: false,
@@ -299,8 +382,60 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       if (id !== null && !get().document.entities.some((entity) => entity.id === id)) {
         return;
       }
-      set({ selectedEntityId: id });
+      set({ selectedEntityId: id, selectedFeatureId: null });
     },
+
+    selectFeature: (id) => {
+      if (id !== null && !get().document.features.some((feature) => feature.id === id)) {
+        return;
+      }
+      set({ selectedFeatureId: id, selectedEntityId: null });
+    },
+
+    selectBody: (bodyId) => {
+      if (bodyId === null) {
+        set({ selectedEntityId: null, selectedFeatureId: null });
+        return;
+      }
+      const state = get();
+      if (state.document.entities.some((entity) => entity.id === bodyId)) {
+        set({ selectedEntityId: bodyId, selectedFeatureId: null });
+      } else if (state.document.features.some((feature) => feature.id === bodyId)) {
+        // A picked derived body carries its owning feature's id: select the feature.
+        set({ selectedFeatureId: bodyId, selectedEntityId: null });
+      }
+    },
+
+    clearSelection: () => set({ selectedEntityId: null, selectedFeatureId: null }),
+
+    setHovered: (id) => set({ hoveredId: id }),
+
+    deleteSelected: () => {
+      const state = get();
+      if (state.selectedFeatureId) {
+        get().requestDelete({ kind: 'feature', id: state.selectedFeatureId });
+      } else if (state.selectedEntityId) {
+        get().requestDelete({ kind: 'entity', id: state.selectedEntityId });
+      }
+    },
+
+    requestDelete: (target) => {
+      const state = get();
+      const plan = planDeletion(state.document, target);
+      if (!plan) return;
+      if (plan.dependents.length === 0) {
+        commitDeletion(plan);
+      } else {
+        set({ pendingDeletion: plan });
+      }
+    },
+
+    confirmDeletion: () => {
+      const plan = get().pendingDeletion;
+      if (plan) commitDeletion(plan);
+    },
+
+    cancelDeletion: () => set({ pendingDeletion: null }),
 
     setCameraProjection: (projection) => set({ cameraProjection: projection }),
 
@@ -349,6 +484,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: false,
         canRedo: false,
         selectedEntityId: null,
+        selectedFeatureId: null,
+        hoveredId: null,
+        pendingDeletion: null,
         sketch: null,
         sketchSelection: [],
         selectedConstraintId: null,
@@ -366,6 +504,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
+        selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
+        hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
       });
     },
@@ -380,6 +521,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
+        selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
+        hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
       });
     },
@@ -605,6 +749,41 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       });
     },
 
+    deleteSketchSelection: () => {
+      const state = get();
+      const sketch = selectActiveSketch(state);
+      if (!sketch) return;
+
+      // Prefer entity deletion; fall back to the selected constraint glyph.
+      if (state.sketchSelection.length === 0) {
+        if (state.selectedConstraintId) get().deleteConstraint(state.selectedConstraintId);
+        return;
+      }
+
+      const { entities, constraints } = removeSketchEntities(sketch, state.sketchSelection);
+      if (entities.length === sketch.entities.length && constraints.length === sketch.constraints.length) {
+        return; // nothing was actually removed
+      }
+
+      const candidate: SketchFeature = { ...sketch, entities, constraints };
+      const nextHistory = applyCommandToHistory(state.history, {
+        type: 'feature.update',
+        id: sketch.id,
+        patch: { entities, constraints },
+      });
+      const remainingConstraintIds = new Set(constraints.map((constraint) => constraint.id));
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSelection: [],
+        selectedConstraintId:
+          state.selectedConstraintId && remainingConstraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
+      });
+    },
+
     finishSketch: () => {
       if (!get().sketch) return;
       set({
@@ -626,11 +805,17 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     },
 
     setGridVisible: (visible) => set({ gridVisible: visible }),
-  }));
+    };
+  });
 }
 
 export function selectSelectedEntity(state: CadStoreState): CadEntity | undefined {
   return state.document.entities.find((entity) => entity.id === state.selectedEntityId);
+}
+
+/** The currently selected feature (sketch or extrude), or `undefined` when none is selected. */
+export function selectSelectedFeature(state: CadStoreState): CadFeature | undefined {
+  return state.document.features.find((feature) => feature.id === state.selectedFeatureId);
 }
 
 /** The `SketchFeature` currently being edited, or `null` when not in sketch mode. */

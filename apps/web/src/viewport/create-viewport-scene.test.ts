@@ -110,6 +110,44 @@ function buildCanvas() {
   return canvas;
 }
 
+/** A document with one primitive body and one extrude feature that produces a derived solid. */
+function documentWithExtrude(): CadDocumentV2 {
+  return {
+    schemaVersion: 2,
+    units: 'mm',
+    entities: [
+      {
+        id: 'box-1',
+        name: 'Box',
+        primitive: { kind: 'box', width: 10, height: 10, depth: 10 },
+        transform: { translation: [-40, 0, 0], rotationDeg: [0, 0, 0], scale: [1, 1, 1] },
+        visible: true,
+      },
+    ],
+    features: [
+      {
+        id: 'sk-1',
+        kind: 'sketch',
+        name: 'Sketch 1',
+        plane: 'XY',
+        entities: [
+          { id: 'p1', kind: 'point', x: 0, y: 0, construction: false },
+          { id: 'p2', kind: 'point', x: 10, y: 0, construction: false },
+          { id: 'p3', kind: 'point', x: 10, y: 10, construction: false },
+          { id: 'p4', kind: 'point', x: 0, y: 10, construction: false },
+          { id: 'l1', kind: 'line', startId: 'p1', endId: 'p2', construction: false },
+          { id: 'l2', kind: 'line', startId: 'p2', endId: 'p3', construction: false },
+          { id: 'l3', kind: 'line', startId: 'p3', endId: 'p4', construction: false },
+          { id: 'l4', kind: 'line', startId: 'p4', endId: 'p1', construction: false },
+        ],
+        constraints: [],
+        visible: true,
+      },
+      { id: 'ex-1', kind: 'extrude', name: 'Extrude 1', sketchId: 'sk-1', depth: 5, direction: 'normal', visible: true },
+    ],
+  };
+}
+
 let rafSpy: ReturnType<typeof vi.fn>;
 let cancelRafSpy: ReturnType<typeof vi.fn>;
 
@@ -575,6 +613,98 @@ describe('createViewportScene', () => {
     scene.setProjection('orthographic');
 
     expect(transformControls.camera).toBe(scene.getActiveCamera());
+
+    scene.dispose();
+  });
+
+  it('tags a derived feature body with its feature id so it can be picked', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: documentWithExtrude(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const ids = scene.scene.children
+      .map((child) => child.userData['entityId'])
+      .filter((id): id is string => id !== undefined)
+      .sort();
+    expect(ids).toEqual(['box-1', 'ex-1']);
+
+    scene.dispose();
+  });
+
+  it('highlights a selected derived feature body without attaching the transform gizmo', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: documentWithExtrude(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    scene.setSelection('ex-1');
+
+    const extrude = scene.scene.children.find((child) => child.userData['entityId'] === 'ex-1')!;
+    const material = (extrude as unknown as { material: MeshStandardMaterial }).material;
+    expect(material.emissive.getHex()).not.toBe(0x000000);
+    // Derived solids are not transform-editable, so no gizmo is attached.
+    expect(transformControlsState.instances[0]!.attach).not.toHaveBeenCalled();
+
+    scene.dispose();
+  });
+
+  it('applies a distinct hover highlight and clears it, leaving selection untouched', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    scene.setHover('cylinder-1');
+
+    const cylinder = scene.scene.children.find((child) => child.userData['entityId'] === 'cylinder-1')!;
+    const cylinderMaterial = (cylinder as unknown as { material: MeshStandardMaterial }).material;
+    const box = scene.scene.children.find((child) => child.userData['entityId'] === 'box-1')!;
+    const boxMaterial = (box as unknown as { material: MeshStandardMaterial }).material;
+    // Hover and selection use different emissive tints and both are non-black.
+    expect(cylinderMaterial.emissive.getHex()).not.toBe(0x000000);
+    expect(cylinderMaterial.emissive.getHex()).not.toBe(boxMaterial.emissive.getHex());
+
+    scene.setHover(null);
+    expect(cylinderMaterial.emissive.getHex()).toBe(0x000000);
+    // The selected box stays highlighted throughout.
+    expect(boxMaterial.emissive.getHex()).not.toBe(0x000000);
+
+    scene.dispose();
+  });
+
+  it('reports the hovered body id through onHover on pointer move', () => {
+    const onHover = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+      onHover,
+    });
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 100 }));
+
+    expect(onHover).toHaveBeenCalledWith('box-1');
 
     scene.dispose();
   });

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { ContextPanel } from './components/ContextPanel.js';
+import { DeleteConfirmDialog } from './components/DeleteConfirmDialog.js';
 import { DocumentBar } from './components/DocumentBar.js';
 import { FeatureToolbar } from './components/FeatureToolbar.js';
 import { FeatureTree } from './components/FeatureTree.js';
 import { ResizablePanel } from './components/ResizablePanel.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Viewport } from './components/Viewport.js';
+import { handleGlobalDelete } from './interactions/delete-keys.js';
 import { SketchWorkspace } from './sketch/SketchWorkspace.js';
 import { CadStoreProvider } from './store/cad-store-context.js';
 import { createCadStore } from './store/cad-store.js';
-import { useCadStore } from './store/cad-store-context.js';
+import { useCadStore, useCadStoreApi } from './store/cad-store-context.js';
 
 /** True for the "undo" chord (Ctrl/Cmd+Z) and "redo" chords (Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y). */
 function undoRedoDirection(event: KeyboardEvent): 'undo' | 'redo' | null {
@@ -32,36 +34,63 @@ function WorkspaceCenter() {
   );
 }
 
-export function App() {
-  const [store] = useState(() => createCadStore());
+/** Renders the dependency-impact confirmation while a cascade deletion is pending. */
+function PendingDeletionDialog() {
+  const plan = useCadStore((state) => state.pendingDeletion);
+  const confirmDeletion = useCadStore((state) => state.confirmDeletion);
+  const cancelDeletion = useCadStore((state) => state.cancelDeletion);
+  if (!plan) return null;
+  return <DeleteConfirmDialog plan={plan} onConfirm={confirmDeletion} onCancel={cancelDeletion} />;
+}
 
+/** Window-level keyboard: undo/redo chords and Onshape-style Delete/Backspace deletion with focus guards. */
+function useGlobalKeyboard(): void {
+  const storeApi = useCadStoreApi();
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
+      // Deletion first: preventDefault only when a CAD deletion is actually handled,
+      // so typing Backspace in a field never both deletes geometry and navigates back.
+      if (handleGlobalDelete(storeApi, event)) {
+        event.preventDefault();
+        return;
+      }
       const direction = undoRedoDirection(event);
       if (!direction) return;
       event.preventDefault();
-      store.getState()[direction]();
+      storeApi.getState()[direction]();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [store]);
+  }, [storeApi]);
+}
+
+function PartStudio() {
+  useGlobalKeyboard();
+  return (
+    <div className="part-studio">
+      <DocumentBar />
+      <FeatureToolbar />
+      <div className="part-studio__body">
+        <ResizablePanel side="left" label="Feature Tree" defaultWidth={260} minWidth={200} maxWidth={420}>
+          <FeatureTree />
+        </ResizablePanel>
+        <WorkspaceCenter />
+        <ResizablePanel side="right" label="Properties" defaultWidth={288} minWidth={240} maxWidth={440}>
+          <ContextPanel />
+        </ResizablePanel>
+      </div>
+      <StatusBar />
+      <PendingDeletionDialog />
+    </div>
+  );
+}
+
+export function App() {
+  const [store] = useState(() => createCadStore());
 
   return (
     <CadStoreProvider store={store}>
-      <div className="part-studio">
-        <DocumentBar />
-        <FeatureToolbar />
-        <div className="part-studio__body">
-          <ResizablePanel side="left" label="Feature Tree" defaultWidth={260} minWidth={200} maxWidth={420}>
-            <FeatureTree />
-          </ResizablePanel>
-          <WorkspaceCenter />
-          <ResizablePanel side="right" label="Properties" defaultWidth={288} minWidth={240} maxWidth={440}>
-            <ContextPanel />
-          </ResizablePanel>
-        </div>
-        <StatusBar />
-      </div>
+      <PartStudio />
     </CadStoreProvider>
   );
 }
