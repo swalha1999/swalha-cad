@@ -1,0 +1,235 @@
+:root {
+  color-scheme: dark;
+  --swalha-bg: #16181d;
+  --swalha-panel: #1c1f26;
+  --swalha-border: #2b2f38;
+  --swalha-text: #e4e7ec;
+  --swalha-text-muted: #8b93a1;
+  --swalha-accent: #3b5bfd;
+  --swalha-row-hover: #23262e;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--swalha-bg);
+  color: var(--swalha-text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 960px;
+}
+
+.panel-heading {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--swalha-text-muted);
+}
+
+/* Toolbar */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--swalha-panel);
+  border-bottom: 1px solid var(--swalha-border);
+  flex: 0 0 auto;
+}
+
+.toolbar__title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.toolbar__group {
+  display: flex;
+  gap: 2px;
+  background: var(--swalha-bg);
+  border: 1px solid var(--swalha-border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.toolbar__button {
+  border: none;
+  background: transparent;
+  color: var(--swalha-text-muted);
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toolbar__button[aria-pressed='true'] {
+  background: var(--swalha-accent);
+  color: white;
+}
+
+/* Three-column layout */
+
+.app__columns {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  min-height: 0;
+}
+
+/* Scene tree */
+
+.scene-tree {
+  border-right: 1px solid var(--swalha-border);
+  background: var(--swalha-panel);
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.scene-tree__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scene-tree__row {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--swalha-text);
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.scene-tree__row:hover {
+  background: var(--swalha-row-hover);
+}
+
+.scene-tree__row[aria-current='true'] {
+  background: var(--swalha-accent);
+  color: white;
+}
+
+.scene-tree__kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--swalha-text-muted);
+}
+
+.scene-tree__row[aria-current='true'] .scene-tree__kind {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Viewport */
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  background: #0f1115;
+}
+
+.viewport__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Properties panel */
+
+.properties-panel {
+  border-left: 1px solid var(--swalha-border);
+  background: var(--swalha-panel);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.properties-panel__empty {
+  color: var(--swalha-text-muted);
+  font-size: 13px;
+}
+
+.properties-panel__section {
+  margin: 20px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--swalha-text-muted);
+}
+
+.field {
+  margin-bottom: 8px;
+}
+
+.field label {
+  display: block;
+  font-size: 11px;
+  color: var(--swalha-text-muted);
+  margin-bottom: 4px;
+}
+
+.field__control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--swalha-bg);
+  border: 1px solid var(--swalha-border);
+  border-radius: 4px;
+  padding: 0 8px;
+}
+
+.field__control input,
+.field input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--swalha-text);
+  font-size: 13px;
+  padding: 6px 0;
+  min-width: 0;
+}
+
+.field input:not([type='number']) {
+  background: var(--swalha-bg);
+  border: 1px solid var(--swalha-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.field__control input:focus,
+.field input:focus {
+  outline: none;
+}
+
+.field__unit {
+  font-size: 11px;
+  color: var(--swalha-text-muted);
+}
