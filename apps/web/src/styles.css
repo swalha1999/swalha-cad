@@ -431,11 +431,145 @@ body {
 
 /* Viewport */
 
+.part-studio__center {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
 .viewport {
   position: relative;
   min-width: 0;
   flex: 1 1 auto;
   background: linear-gradient(180deg, var(--viewport-top) 0%, var(--viewport-bottom) 100%);
+}
+
+/* Sketch workspace (2D overlay above the viewport) */
+
+.sketch-workspace {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #f7f9fc 0%, #eef2f8 100%);
+  z-index: 10;
+}
+
+.sketch-workspace__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 12px;
+  background: color-mix(in oklch, var(--shell-panel) 92%, transparent);
+  border-bottom: 1px solid var(--shell-border);
+  flex: 0 0 auto;
+}
+
+.sketch-workspace__plane {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--shell-accent-strong);
+}
+
+.sketch-workspace__separator {
+  height: 22px;
+  margin: 0 4px;
+}
+
+.sketch-workspace__finish {
+  margin-left: auto;
+}
+
+.sketch-workspace__canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sketch-overlay__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.sketch-overlay__grid-line {
+  stroke: #d3dae6;
+  stroke-width: 0.5;
+}
+
+.sketch-overlay__axis {
+  stroke-width: 1.5;
+}
+
+.sketch-overlay__axis--x {
+  stroke: #e5484d;
+}
+
+.sketch-overlay__axis--y {
+  stroke: #30a46c;
+}
+
+.sketch-overlay__line {
+  stroke: var(--shell-accent-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sketch-overlay__circle {
+  fill: none;
+  stroke: var(--shell-accent-strong);
+  stroke-width: 2;
+}
+
+.sketch-overlay__point {
+  fill: var(--shell-accent-strong);
+}
+
+/* Construction geometry is rendered distinctly: muted and dashed. */
+.sketch-overlay__edge--construction {
+  stroke: #b07cd6;
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+}
+
+.sketch-overlay__point.sketch-overlay__edge--construction {
+  fill: #b07cd6;
+}
+
+.sketch-overlay__preview-line {
+  stroke: var(--shell-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+
+.sketch-overlay__preview-circle {
+  fill: none;
+  stroke: var(--shell-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+
+.sketch-overlay__preview-point {
+  fill: var(--shell-accent);
+}
+
+.sketch-overlay__snap {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.sketch-overlay__snap--point {
+  stroke: #f5a623;
+}
+
+.sketch-overlay__snap--grid {
+  stroke: var(--shell-accent);
 }
 
 .viewport__canvas {

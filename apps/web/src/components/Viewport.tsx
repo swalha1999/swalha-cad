@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import type { SketchPlane } from '@swalha-cad/document';
 import { useCadStore, useCadStoreApi } from '../store/cad-store-context.js';
 import { createViewportScene } from '../viewport/create-viewport-scene.js';
 import type { StandardView, ViewportScene } from '../viewport/create-viewport-scene.js';
@@ -9,6 +10,9 @@ function clampToAtLeastOnePixel(value: number): number {
   return Math.max(1, value);
 }
 
+/** The standard view that looks orthographically straight down each sketch plane's normal. */
+const PLANE_VIEW: Record<SketchPlane, StandardView> = { XY: 'top', XZ: 'front', YZ: 'right' };
+
 export function Viewport() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -17,6 +21,7 @@ export function Viewport() {
   const cadDocument = useCadStore((state) => state.document);
   const projection = useCadStore((state) => state.cameraProjection);
   const selectedEntityId = useCadStore((state) => state.selectedEntityId);
+  const sketchPlane = useCadStore((state) => state.sketch?.plane ?? null);
   const storeApi = useCadStoreApi();
 
   useEffect(() => {
@@ -70,6 +75,11 @@ export function Viewport() {
   useEffect(() => {
     sceneRef.current?.setProjection(projection);
   }, [projection]);
+
+  // Entering a sketch aligns the camera orthographically down the plane normal.
+  useEffect(() => {
+    if (sketchPlane) sceneRef.current?.setStandardView(PLANE_VIEW[sketchPlane]);
+  }, [sketchPlane]);
 
   function handleSelectView(view: StandardView): void {
     sceneRef.current?.setStandardView(view);

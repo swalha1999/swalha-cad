@@ -1,0 +1,90 @@
+/**
+ * Shared types for the deterministic sketch-tool state machines. Each tool is a
+ * pure reducer over one of the {@link ToolState} variants and a {@link ToolEvent};
+ * it never touches the document directly. A reducer's only side-channel is an
+ * optional {@link SketchCommit}, a plane-local description of new geometry that
+ * the store resolves into concrete `SketchEntity` ids and applies through the
+ * feature-command history (see `store/cad-store.ts`). This keeps every committed
+ * action flowing through commands/history and makes the machines unit-testable
+ * without any React, Three.js, or document wiring.
+ */
+
+/** A 2D coordinate in the sketch's own plane-local frame (millimetres, y up). */
+export interface Vec2 {
+  x: number;
+  y: number;
+}
+
+/**
+ * How a commit's point should be materialised: reuse an existing sketch point
+ * (so consecutive segments and shared corners become coincident by construction)
+ * or create a fresh point at plane-local coordinates.
+ */
+export type PointRef = { kind: 'existing'; id: string } | { kind: 'new'; x: number; y: number };
+
+/** Which visual feedback the cursor snapped to, for the overlay's snap indicator. */
+export type SnapKind = 'point' | 'grid';
+
+/** The resolved cursor position plus how it should be committed if clicked. */
+export interface SnapResult {
+  point: Vec2;
+  ref: PointRef;
+  kind: SnapKind;
+}
+
+export type SketchToolKind = 'point' | 'line' | 'rectangle' | 'circle';
+
+/**
+ * A plane-local description of geometry to append to the active sketch. `lines`
+ * and `circles` reference `points` by index; the store dedupes new points that
+ * coincide with existing ones and drops zero-length lines.
+ */
+export interface SketchCommit {
+  points: PointRef[];
+  lines: { start: number; end: number }[];
+  circles: { center: number; radius: number }[];
+}
+
+/** Input events for every tool reducer. `finish` is Enter/double-click; `cancel` is Escape. */
+export type ToolEvent =
+  | { type: 'click'; snap: SnapResult }
+  | { type: 'move'; snap: SnapResult }
+  | { type: 'finish' }
+  | { type: 'cancel' };
+
+export interface PointToolState {
+  tool: 'point';
+}
+
+export interface LineToolState {
+  tool: 'line';
+  /** Placed chain vertices; the chain becomes real only when `finish` commits it. */
+  vertices: SnapResult[];
+  /** Latest snapped cursor, for the rubber-band preview segment. */
+  cursor: Vec2 | null;
+}
+
+export interface RectangleToolState {
+  tool: 'rectangle';
+  start: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+export interface CircleToolState {
+  tool: 'circle';
+  center: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+export type ToolState = PointToolState | LineToolState | RectangleToolState | CircleToolState;
+
+/**
+ * The result of advancing a tool: the next state, an optional commit to apply
+ * through history, and `exitTool` — set when Escape is pressed with nothing
+ * pending, asking the store to deactivate the tool (back to plain selection).
+ */
+export interface ToolResult {
+  state: ToolState;
+  commit: SketchCommit | null;
+  exitTool: boolean;
+}

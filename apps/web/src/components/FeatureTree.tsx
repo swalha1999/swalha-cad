@@ -1,12 +1,17 @@
-import { Box, Cylinder, Layers, Shapes, Target } from 'lucide-react';
+import { Box, Cylinder, Layers, Move3d, PencilRuler, Shapes, Target } from 'lucide-react';
 import type { ComponentType } from 'react';
-import type { Primitive } from '@swalha-cad/document';
+import type { CadFeature, Primitive } from '@swalha-cad/document';
 import { useCadStore } from '../store/cad-store-context.js';
 
 const PRIMITIVE_ICONS: Record<Primitive['kind'], ComponentType<{ className?: string }>> = {
   box: Box,
   cylinder: Cylinder,
   lBracket: Shapes,
+};
+
+const FEATURE_ICONS: Record<CadFeature['kind'], ComponentType<{ className?: string }>> = {
+  sketch: PencilRuler,
+  extrude: Move3d,
 };
 
 const ORIGIN_ROWS = ['Origin', 'Front Plane (XZ)', 'Top Plane (XY)', 'Right Plane (YZ)'];
@@ -19,6 +24,7 @@ const ORIGIN_ROWS = ['Origin', 'Front Plane (XZ)', 'Top Plane (XY)', 'Right Plan
  */
 export function FeatureTree() {
   const entities = useCadStore((state) => state.document.entities);
+  const features = useCadStore((state) => state.document.features);
   const selectedEntityId = useCadStore((state) => state.selectedEntityId);
   const selectEntity = useCadStore((state) => state.selectEntity);
 
@@ -35,6 +41,23 @@ export function FeatureTree() {
           </li>
         ))}
       </ul>
+
+      {features.length > 0 && (
+        <>
+          <h3 className="feature-tree__section-heading">Features</h3>
+          <ul className="feature-tree__list feature-tree__list--origin">
+            {features.map((feature) => {
+              const Icon = FEATURE_ICONS[feature.kind];
+              return (
+                <li key={feature.id} className="feature-tree__origin-row">
+                  <Icon className="feature-tree__row-icon" />
+                  <span>{feature.name}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
 
       <h3 className="feature-tree__section-heading">Bodies</h3>
       <ul className="feature-tree__list">
