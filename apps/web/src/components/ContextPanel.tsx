@@ -39,7 +39,7 @@ function dimensionFieldsFor(primitive: Primitive, commitPrimitive: (next: Primit
   }
 }
 
-function PropertiesPanelContent({
+function ContextPanelContent({
   entity,
   updateEntity,
 }: {
@@ -50,34 +50,40 @@ function PropertiesPanelContent({
   const commitTransform = (next: CadEntity['transform']) => updateEntity(entity.id, { transform: next });
 
   return (
-    <div className="properties-panel__content">
+    <div className="context-panel__content">
       <div className="field">
         <label htmlFor="entity-name">Name</label>
         <input id="entity-name" type="text" readOnly value={entity.name} />
       </div>
 
-      <h3 className="properties-panel__section">Dimensions</h3>
+      <h3 className="context-panel__section">Dimensions</h3>
       {dimensionFieldsFor(entity.primitive, commitPrimitive).map((field) => (
         <NumericField key={field.label} {...field} />
       ))}
 
-      <h3 className="properties-panel__section">Transform</h3>
+      <h3 className="context-panel__section">Transform</h3>
       <TransformFields transform={entity.transform} onCommit={commitTransform} />
     </div>
   );
 }
 
-export function PropertiesPanel() {
+/**
+ * Right-hand contextual panel: shows dimension/transform editing for whatever is
+ * currently selected. Keeps M1's "Properties" accessible name and empty-state
+ * copy so the existing browser workflows and their e2e coverage keep working
+ * unchanged; sketch/feature-specific editors are added in a later milestone task.
+ */
+export function ContextPanel() {
   const entity = useCadStore(selectSelectedEntity);
   const updateEntity = useCadStore((state) => state.updateEntity);
 
   return (
-    <aside className="properties-panel" aria-label="Properties">
+    <aside className="context-panel" aria-label="Properties">
       <h2 className="panel-heading">Properties</h2>
       {entity ? (
-        <PropertiesPanelContent entity={entity} updateEntity={updateEntity} />
+        <ContextPanelContent entity={entity} updateEntity={updateEntity} />
       ) : (
-        <p className="properties-panel__empty">No selection</p>
+        <p className="context-panel__empty">No selection</p>
       )}
     </aside>
   );

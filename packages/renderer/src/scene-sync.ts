@@ -11,7 +11,7 @@ interface SyncedEntity {
 
 /** New materials are created with depth testing and back-face culling explicit, not left to Three.js defaults. */
 function createEntityMaterial(): MeshStandardMaterial {
-  const material = new MeshStandardMaterial({ color: 0x9aa5b1, roughness: 0.6, metalness: 0.1 });
+  const material = new MeshStandardMaterial({ color: 0xaab4c2, roughness: 0.45, metalness: 0.12 });
   material.depthTest = true;
   material.side = FrontSide;
   return material;

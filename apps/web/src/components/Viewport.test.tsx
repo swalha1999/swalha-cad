@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { act, StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { CadStoreProvider } from '../store/cad-store-context.js';
@@ -14,6 +14,7 @@ function buildFakeScene(onSelectArg: (id: string | null) => void) {
     updateDocument: vi.fn(),
     setSelection: vi.fn(),
     setProjection: vi.fn(),
+    setStandardView: vi.fn(),
     resize: vi.fn(),
     getActiveCamera: vi.fn(),
     dispose: vi.fn(),
@@ -135,5 +136,40 @@ describe('Viewport', () => {
 
     const updated = store.getState().document.entities.find((entity) => entity.id === id);
     expect(updated?.transform).toEqual(transform);
+  });
+
+  it('renders the view cube and viewport navigation controls as overlays', () => {
+    sceneState.instances = [];
+    renderViewport();
+
+    expect(screen.getByRole('group', { name: 'View orientation' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Viewport navigation' })).toBeInTheDocument();
+  });
+
+  it('sets a standard view on the scene when a view cube face is clicked', () => {
+    sceneState.instances = [];
+    renderViewport();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Front view' }));
+
+    expect(sceneState.instances[0]!.setStandardView).toHaveBeenCalledWith('front');
+  });
+
+  it('sets the home view on the scene when the viewport controls home button is clicked', () => {
+    sceneState.instances = [];
+    renderViewport();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home view' }));
+
+    expect(sceneState.instances[0]!.setStandardView).toHaveBeenCalledWith('home');
+  });
+
+  it('changes the store camera projection from the viewport controls', () => {
+    sceneState.instances = [];
+    const { store } = renderViewport();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Orthographic' }));
+
+    expect(store.getState().cameraProjection).toBe('orthographic');
   });
 });

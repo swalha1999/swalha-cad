@@ -10,6 +10,7 @@ vi.mock('./viewport/create-viewport-scene.js', () => ({
       updateDocument: vi.fn(),
       setSelection: vi.fn(),
       setProjection: vi.fn(),
+      setStandardView: vi.fn(),
       resize: vi.fn(),
       getActiveCamera: vi.fn(),
       dispose: vi.fn(),
@@ -22,16 +23,18 @@ vi.mock('./viewport/create-viewport-scene.js', () => ({
 const { App } = await import('./App.js');
 
 describe('App', () => {
-  it('renders the toolbar, scene tree, viewport, and properties panel as three columns', () => {
+  it('renders the document bar, feature toolbar, feature tree, viewport, context panel, and status bar', () => {
     render(<App />);
 
     expect(screen.getByText('SWALHA CAD')).toBeInTheDocument();
+    expect(screen.getByRole('toolbar', { name: 'Feature toolbar' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Scene tree' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Properties' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Part Studio 1' })).toBeInTheDocument();
     expect(screen.getByText('Box')).toBeInTheDocument();
   });
 
-  it('synchronizes selection: clicking a scene tree row updates the properties panel', () => {
+  it('synchronizes selection: clicking a feature tree row updates the context panel', () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Cylinder' }));
@@ -65,5 +68,15 @@ describe('App', () => {
     fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
 
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+
+  it('collapses and re-expands the left feature tree panel', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Feature Tree' }));
+    expect(screen.queryByRole('navigation', { name: 'Scene tree' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Feature Tree' }));
+    expect(screen.getByRole('navigation', { name: 'Scene tree' })).toBeInTheDocument();
   });
 });

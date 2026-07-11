@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { PropertiesPanel } from './components/PropertiesPanel.js';
-import { SceneTree } from './components/SceneTree.js';
-import { Toolbar } from './components/Toolbar.js';
+import { ContextPanel } from './components/ContextPanel.js';
+import { DocumentBar } from './components/DocumentBar.js';
+import { FeatureToolbar } from './components/FeatureToolbar.js';
+import { FeatureTree } from './components/FeatureTree.js';
+import { ResizablePanel } from './components/ResizablePanel.js';
+import { StatusBar } from './components/StatusBar.js';
 import { Viewport } from './components/Viewport.js';
 import { CadStoreProvider } from './store/cad-store-context.js';
 import { createCadStore } from './store/cad-store.js';
@@ -32,13 +35,19 @@ export function App() {
 
   return (
     <CadStoreProvider store={store}>
-      <div className="app">
-        <Toolbar />
-        <div className="app__columns">
-          <SceneTree />
+      <div className="part-studio">
+        <DocumentBar />
+        <FeatureToolbar />
+        <div className="part-studio__body">
+          <ResizablePanel side="left" label="Feature Tree" defaultWidth={260} minWidth={200} maxWidth={420}>
+            <FeatureTree />
+          </ResizablePanel>
           <Viewport />
-          <PropertiesPanel />
+          <ResizablePanel side="right" label="Properties" defaultWidth={288} minWidth={240} maxWidth={440}>
+            <ContextPanel />
+          </ResizablePanel>
         </div>
+        <StatusBar />
       </div>
     </CadStoreProvider>
   );

@@ -475,6 +475,90 @@ describe('createViewportScene', () => {
     scene.dispose();
   });
 
+  it('adds ambient and directional lights so unselected geometry is never pure black', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const lightTypes = scene.scene.children.map((child) => child.type);
+    expect(lightTypes).toContain('AmbientLight');
+    expect(lightTypes.filter((type) => type === 'DirectionalLight')).toHaveLength(2);
+
+    scene.dispose();
+  });
+
+  it('moves the camera to a standard view direction, preserving distance from the origin', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const distanceBefore = scene.getActiveCamera().position.length();
+
+    scene.setStandardView('front');
+
+    const camera = scene.getActiveCamera();
+    expect(camera.position.x).toBeCloseTo(0, 5);
+    expect(camera.position.y).toBeCloseTo(0, 5);
+    expect(camera.position.z).toBeCloseTo(distanceBefore, 5);
+
+    scene.dispose();
+  });
+
+  it('moves to the top view along the world Y axis', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const distanceBefore = scene.getActiveCamera().position.length();
+
+    scene.setStandardView('top');
+
+    const camera = scene.getActiveCamera();
+    expect(camera.position.x).toBeCloseTo(0, 5);
+    expect(camera.position.y).toBeCloseTo(distanceBefore, 5);
+    expect(camera.position.z).toBeCloseTo(0, 5);
+
+    scene.dispose();
+  });
+
+  it('restores the default home view direction', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    scene.setStandardView('right');
+    scene.setStandardView('home');
+
+    const camera = scene.getActiveCamera();
+    expect(camera.position.x).toBeGreaterThan(0);
+    expect(camera.position.y).toBeGreaterThan(0);
+    expect(camera.position.z).toBeGreaterThan(0);
+
+    scene.dispose();
+  });
+
   it('reassigns the gizmo camera when the projection switches', () => {
     const scene = createViewportScene({
       canvas: buildCanvas(),

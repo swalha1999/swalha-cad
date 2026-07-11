@@ -3,18 +3,24 @@ import { describe, expect, it } from 'vitest';
 import { CadStoreProvider } from '../store/cad-store-context.js';
 import { createCadStore } from '../store/cad-store.js';
 import { buildTestDocument } from '../test/fixtures.js';
-import { PropertiesPanel } from './PropertiesPanel.js';
+import { ContextPanel } from './ContextPanel.js';
 
 function renderPanel(store = createCadStore(buildTestDocument())) {
   render(
     <CadStoreProvider store={store}>
-      <PropertiesPanel />
+      <ContextPanel />
     </CadStoreProvider>,
   );
   return store;
 }
 
-describe('PropertiesPanel', () => {
+describe('ContextPanel', () => {
+  it('exposes the Properties complementary landmark', () => {
+    renderPanel();
+
+    expect(screen.getByRole('complementary', { name: 'Properties' })).toBeInTheDocument();
+  });
+
   it('shows an empty-state message when nothing is selected', () => {
     renderPanel();
 

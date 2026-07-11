@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useCadStore, useCadStoreApi } from '../store/cad-store-context.js';
 import { createViewportScene } from '../viewport/create-viewport-scene.js';
-import type { ViewportScene } from '../viewport/create-viewport-scene.js';
+import type { StandardView, ViewportScene } from '../viewport/create-viewport-scene.js';
+import { ViewCube } from './ViewCube.js';
+import { ViewportControls } from './ViewportControls.js';
 
 function clampToAtLeastOnePixel(value: number): number {
   return Math.max(1, value);
@@ -69,9 +71,23 @@ export function Viewport() {
     sceneRef.current?.setProjection(projection);
   }, [projection]);
 
+  function handleSelectView(view: StandardView): void {
+    sceneRef.current?.setStandardView(view);
+  }
+
   return (
     <div className="viewport" ref={containerRef}>
       <canvas ref={canvasRef} className="viewport__canvas" />
+      <div className="viewport__overlay viewport__overlay--top-right">
+        <ViewCube onSelectView={handleSelectView} />
+      </div>
+      <div className="viewport__overlay viewport__overlay--bottom-left">
+        <ViewportControls
+          projection={projection}
+          onProjectionChange={(next) => storeApi.getState().setCameraProjection(next)}
+          onHome={() => handleSelectView('home')}
+        />
+      </div>
     </div>
   );
 }
