@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CadStoreProvider } from '../store/cad-store-context.js';
 import { createCadStore } from '../store/cad-store.js';
@@ -54,11 +54,43 @@ describe('PropertiesPanel', () => {
     expect(screen.getAllByText('deg').length).toBeGreaterThan(0);
   });
 
-  it('marks numeric fields as read-only in this shell (editing ships in a later task)', () => {
+  it('edits a dimension and regenerates the entity primitive', () => {
     const store = createCadStore(buildTestDocument());
     store.getState().selectEntity('box-1');
     renderPanel(store);
 
-    expect(screen.getByLabelText('Width')).toHaveAttribute('readonly');
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '99' } });
+    fireEvent.blur(screen.getByLabelText('Width'));
+
+    const updated = store.getState().document.entities.find((entity) => entity.id === 'box-1');
+    expect(updated?.primitive).toEqual({ kind: 'box', width: 99, height: 30, depth: 20 });
+  });
+
+  it('rejects a non-positive dimension edit and shows an inline error', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().selectEntity('box-1');
+    renderPanel(store);
+
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '0' } });
+    fireEvent.blur(screen.getByLabelText('Width'));
+
+    expect(screen.getByLabelText('Width')).toHaveValue(0);
+    expect(screen.getByText(/invalid value/i)).toBeInTheDocument();
+    const updated = store.getState().document.entities.find((entity) => entity.id === 'box-1');
+    expect(updated?.primitive).toEqual({ kind: 'box', width: 40, height: 30, depth: 20 });
+  });
+
+  it('edits translate/rotate/scale transform fields', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().selectEntity('box-1');
+    renderPanel(store);
+
+    fireEvent.change(screen.getByLabelText('Translate X'), { target: { value: '10' } });
+    fireEvent.blur(screen.getByLabelText('Translate X'));
+    fireEvent.change(screen.getByLabelText('Scale Y'), { target: { value: '2' } });
+    fireEvent.blur(screen.getByLabelText('Scale Y'));
+
+    const updated = store.getState().document.entities.find((entity) => entity.id === 'box-1');
+    expect(updated?.transform).toEqual({ translation: [10, 0, 0], rotationDeg: [0, 0, 0], scale: [1, 2, 1] });
   });
 });

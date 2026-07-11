@@ -45,4 +45,35 @@ describe('Toolbar', () => {
 
     expect(store.getState().cameraProjection).toBe('perspective');
   });
+
+  it('offers buttons to add each primitive kind', () => {
+    renderToolbar();
+
+    expect(screen.getByRole('button', { name: /add box/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add cylinder/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add l-bracket/i })).toBeInTheDocument();
+  });
+
+  it('disables undo and redo when there is no history', () => {
+    renderToolbar();
+
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+
+  it('undoes and redoes a create through the toolbar buttons', () => {
+    const store = renderToolbar();
+    const before = store.getState().document.entities.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /add box/i }));
+    expect(store.getState().document.entities).toHaveLength(before + 1);
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(store.getState().document.entities).toHaveLength(before);
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(store.getState().document.entities).toHaveLength(before + 1);
+  });
 });

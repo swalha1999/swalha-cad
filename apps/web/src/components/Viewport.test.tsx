@@ -121,4 +121,19 @@ describe('Viewport', () => {
 
     expect(store.getState().selectedEntityId).toBe('cylinder-1');
   });
+
+  it("wires the scene's onTransformChange callback into the store's updateEntity", () => {
+    sceneState.instances = [];
+    const { store } = renderViewport();
+    const id = store.getState().document.entities[0]!.id;
+    const options = vi.mocked(createViewportScene).mock.calls.at(-1)![0];
+    const transform = { translation: [9, 8, 7] as const, rotationDeg: [0, 0, 0] as const, scale: [1, 1, 1] as const };
+
+    act(() => {
+      options.onTransformChange(id, transform);
+    });
+
+    const updated = store.getState().document.entities.find((entity) => entity.id === id);
+    expect(updated?.transform).toEqual(transform);
+  });
 });

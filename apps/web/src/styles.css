@@ -233,3 +233,15 @@ body {
   font-size: 11px;
   color: var(--swalha-text-muted);
 }
+
+.field__error {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #f2777a;
+}
+
+.toolbar__button:disabled {
+  color: var(--swalha-border);
+  cursor: default;
+}

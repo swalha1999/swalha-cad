@@ -1,9 +1,11 @@
 import type { CadDocumentV1 } from '@swalha-cad/document';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MeshStandardMaterial, PerspectiveCamera } from 'three';
+import { Object3D } from 'three';
+import type { MeshStandardMaterial, Object3D as Object3DType, PerspectiveCamera } from 'three';
 
 const rendererState = vi.hoisted(() => ({ instances: [] as ReturnType<typeof buildFakeRenderer>[] }));
 const controlsState = vi.hoisted(() => ({ instances: [] as ReturnType<typeof buildFakeControls>[] }));
+const transformControlsState = vi.hoisted(() => ({ instances: [] as ReturnType<typeof buildFakeTransformControls>[] }));
 
 function buildFakeRenderer() {
   return {
@@ -21,7 +23,34 @@ function buildFakeControls(camera: unknown) {
     target: { set: vi.fn() },
     update: vi.fn(),
     dispose: vi.fn(),
+    enabled: true,
   };
+}
+
+function buildFakeTransformControls(camera: unknown) {
+  const listeners = new Map<string, Set<(event: Record<string, unknown>) => void>>();
+  const helper = new Object3D();
+  const instance = {
+    camera,
+    object: undefined as Object3DType | undefined,
+    addEventListener: vi.fn((type: string, callback: (event: Record<string, unknown>) => void) => {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(callback);
+    }),
+    removeEventListener: vi.fn(),
+    attach: vi.fn((object: Object3DType) => {
+      instance.object = object;
+    }),
+    detach: vi.fn(() => {
+      instance.object = undefined;
+    }),
+    getHelper: vi.fn(() => helper),
+    dispose: vi.fn(),
+    emit(type: string, event: Record<string, unknown> = {}) {
+      for (const callback of listeners.get(type) ?? []) callback({ type, ...event });
+    },
+  };
+  return instance;
 }
 
 vi.mock('./create-renderer.js', () => ({
@@ -36,6 +65,14 @@ vi.mock('./create-orbit-controls.js', () => ({
   createOrbitControls: vi.fn((camera: unknown) => {
     const instance = buildFakeControls(camera);
     controlsState.instances.push(instance);
+    return instance;
+  }),
+}));
+
+vi.mock('./create-transform-controls.js', () => ({
+  createTransformControls: vi.fn((camera: unknown) => {
+    const instance = buildFakeTransformControls(camera);
+    transformControlsState.instances.push(instance);
     return instance;
   }),
 }));
@@ -78,6 +115,7 @@ let cancelRafSpy: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   rendererState.instances = [];
   controlsState.instances = [];
+  transformControlsState.instances = [];
   rafSpy = vi.fn(() => 1);
   cancelRafSpy = vi.fn();
   vi.stubGlobal('requestAnimationFrame', rafSpy);
@@ -97,6 +135,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     expect(rendererState.instances[0]!.setSize).toHaveBeenCalledWith(200, 200, false);
@@ -113,9 +152,13 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
-    const ids = scene.scene.children.map((child) => child.userData['entityId']).sort();
+    const ids = scene.scene.children
+      .map((child) => child.userData['entityId'])
+      .filter((id): id is string => id !== undefined)
+      .sort();
     expect(ids).toEqual(['box-1', 'cylinder-1']);
 
     scene.dispose();
@@ -129,6 +172,7 @@ describe('createViewportScene', () => {
       selectedEntityId: 'box-1',
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     const box = scene.scene.children.find((child) => child.userData['entityId'] === 'box-1')!;
@@ -150,6 +194,7 @@ describe('createViewportScene', () => {
       selectedEntityId: 'box-1',
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     scene.setSelection('cylinder-1');
@@ -173,11 +218,13 @@ describe('createViewportScene', () => {
       selectedEntityId: 'box-1',
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     scene.setSelection(null);
 
-    for (const child of scene.scene.children) {
+    const entityMeshes = scene.scene.children.filter((child) => child.userData['entityId'] !== undefined);
+    for (const child of entityMeshes) {
       const material = (child as unknown as { material: MeshStandardMaterial }).material;
       expect(material.emissive.getHex()).toBe(0x000000);
     }
@@ -193,14 +240,16 @@ describe('createViewportScene', () => {
       selectedEntityId: 'cylinder-1',
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     const nextDocument = seedDocument();
     nextDocument.entities = nextDocument.entities.filter((entity) => entity.id !== 'box-1');
     scene.updateDocument(nextDocument);
 
-    expect(scene.scene.children).toHaveLength(1);
-    const cylinder = scene.scene.children[0]!;
+    const entityMeshes = scene.scene.children.filter((child) => child.userData['entityId'] !== undefined);
+    expect(entityMeshes).toHaveLength(1);
+    const cylinder = entityMeshes[0]!;
     expect(cylinder.userData['entityId']).toBe('cylinder-1');
     const material = (cylinder as unknown as { material: MeshStandardMaterial }).material;
     expect(material.emissive.getHex()).not.toBe(0x000000);
@@ -216,6 +265,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     const perspectiveCamera = scene.getActiveCamera();
@@ -241,6 +291,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
     });
 
     scene.resize({ width: 400, height: 100 });
@@ -261,6 +312,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect,
+      onTransformChange: vi.fn(),
     });
 
     canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
@@ -281,6 +333,7 @@ describe('createViewportScene', () => {
       selectedEntityId: 'box-1',
       viewport: { width: 200, height: 200 },
       onSelect,
+      onTransformChange: vi.fn(),
     });
 
     canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 199, clientY: 1 }));
@@ -301,6 +354,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect,
+      onTransformChange: vi.fn(),
     });
 
     canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
@@ -321,6 +375,7 @@ describe('createViewportScene', () => {
       selectedEntityId: null,
       viewport: { width: 200, height: 200 },
       onSelect,
+      onTransformChange: vi.fn(),
     });
 
     scene.dispose();
@@ -333,5 +388,127 @@ describe('createViewportScene', () => {
     canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
     canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100 }));
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('attaches the transform gizmo to the initially selected entity', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const box = scene.scene.children.find((child) => child.userData['entityId'] === 'box-1')!;
+    expect(transformControlsState.instances[0]!.attach).toHaveBeenCalledWith(box);
+
+    scene.dispose();
+  });
+
+  it('does not attach the gizmo when nothing is selected', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    expect(transformControlsState.instances[0]!.attach).not.toHaveBeenCalled();
+
+    scene.dispose();
+  });
+
+  it('moves the gizmo to the newly selected entity and detaches when selection clears', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const transformControls = transformControlsState.instances[0]!;
+
+    scene.setSelection('cylinder-1');
+    const cylinder = scene.scene.children.find((child) => child.userData['entityId'] === 'cylinder-1')!;
+    expect(transformControls.attach).toHaveBeenCalledWith(cylinder);
+
+    scene.setSelection(null);
+    expect(transformControls.detach).toHaveBeenCalled();
+
+    scene.dispose();
+  });
+
+  it('disables orbit controls while dragging and commits the transform when the drag ends', () => {
+    const onTransformChange = vi.fn();
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange,
+    });
+    const transformControls = transformControlsState.instances[0]!;
+    const orbitControls = controlsState.instances[0]!;
+
+    transformControls.emit('dragging-changed', { value: true });
+    expect(orbitControls.enabled).toBe(false);
+    expect(onTransformChange).not.toHaveBeenCalled();
+
+    transformControls.object!.position.set(5, 6, 7);
+    transformControls.emit('dragging-changed', { value: false });
+
+    expect(orbitControls.enabled).toBe(true);
+    expect(onTransformChange).toHaveBeenCalledTimes(1);
+    const [entityId, transform] = onTransformChange.mock.calls[0]!;
+    expect(entityId).toBe('box-1');
+    expect(transform.translation).toEqual([5, 6, 7]);
+
+    scene.dispose();
+  });
+
+  it('reassigns the gizmo camera when the projection switches', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const transformControls = transformControlsState.instances[0]!;
+
+    scene.setProjection('orthographic');
+
+    expect(transformControls.camera).toBe(scene.getActiveCamera());
+
+    scene.dispose();
+  });
+
+  it('disposes the transform gizmo and removes its helper from the scene', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const transformControls = transformControlsState.instances[0]!;
+
+    scene.dispose();
+
+    expect(transformControls.dispose).toHaveBeenCalled();
+    expect(scene.scene.children).not.toContain(transformControls.getHelper());
   });
 });

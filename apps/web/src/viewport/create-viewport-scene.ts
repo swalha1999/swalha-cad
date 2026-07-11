@@ -1,4 +1,4 @@
-import type { CadDocumentV1 } from '@swalha-cad/document';
+import type { CadDocumentV1, Transform } from '@swalha-cad/document';
 import type { Viewport } from '@swalha-cad/renderer';
 import {
   SceneSync,
@@ -11,8 +11,10 @@ import type { MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, Scene
 import type { CameraProjection } from '../store/cad-store.js';
 import { createOrbitControls } from './create-orbit-controls.js';
 import { createRenderer } from './create-renderer.js';
+import { createTransformControls } from './create-transform-controls.js';
 import { isClick } from './is-click.js';
 import { pickEntityId } from './pick-entity.js';
+import { transformFromObject } from './transform-from-object.js';
 
 export interface ViewportSceneOptions {
   canvas: HTMLCanvasElement;
@@ -21,6 +23,7 @@ export interface ViewportSceneOptions {
   selectedEntityId: string | null;
   viewport: Viewport;
   onSelect: (entityId: string | null) => void;
+  onTransformChange: (entityId: string, transform: Transform) => void;
 }
 
 export interface ViewportScene {
@@ -67,6 +70,28 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
 
   const controls = createOrbitControls(activeCamera, options.canvas);
 
+  const transformControls = createTransformControls(activeCamera, options.canvas);
+  sceneSync.scene.add(transformControls.getHelper());
+  let attachedEntityId: string | null = null;
+
+  function syncGizmoAttachment(): void {
+    const object = currentSelectedId ? sceneSync.objectFor(currentSelectedId) : undefined;
+    if (object) {
+      transformControls.attach(object);
+      attachedEntityId = currentSelectedId;
+    } else {
+      transformControls.detach();
+      attachedEntityId = null;
+    }
+  }
+
+  transformControls.addEventListener('dragging-changed', (event) => {
+    controls.enabled = !event.value;
+    if (event.value === false && attachedEntityId && transformControls.object) {
+      options.onTransformChange(attachedEntityId, transformFromObject(transformControls.object));
+    }
+  });
+
   function tagEntityIds(): void {
     for (const entity of currentDocument.entities) {
       const object = sceneSync.objectFor(entity.id);
@@ -86,6 +111,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   sceneSync.sync(currentDocument);
   tagEntityIds();
   applyHighlights();
+  syncGizmoAttachment();
 
   let frameId = requestAnimationFrame(function loop() {
     controls.update();
@@ -128,11 +154,13 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       sceneSync.sync(document);
       tagEntityIds();
       applyHighlights();
+      syncGizmoAttachment();
     },
 
     setSelection(entityId) {
       currentSelectedId = entityId;
       applyHighlights();
+      syncGizmoAttachment();
     },
 
     setProjection(projection) {
@@ -144,6 +172,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       currentProjection = projection;
       controls.object = activeCamera;
       controls.update();
+      transformControls.camera = activeCamera;
     },
 
     resize(viewport) {
@@ -161,6 +190,8 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       options.canvas.removeEventListener('pointerdown', handlePointerDown);
       options.canvas.removeEventListener('pointerup', handlePointerUp);
       controls.dispose();
+      sceneSync.scene.remove(transformControls.getHelper());
+      transformControls.dispose();
       sceneSync.dispose();
       renderer.dispose();
     },

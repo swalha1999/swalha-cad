@@ -39,4 +39,31 @@ describe('App', () => {
     expect(screen.getByDisplayValue('Cylinder')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cylinder' })).toHaveAttribute('aria-current', 'true');
   });
+
+  it('undoes and redoes the last command with Ctrl+Z / Ctrl+Shift+Z', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /add box/i }));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
+
+  it('also treats Ctrl+Y as redo', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /add box/i }));
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
+
+    fireEvent.keyDown(window, { key: 'y', ctrlKey: true });
+
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
+  });
 });

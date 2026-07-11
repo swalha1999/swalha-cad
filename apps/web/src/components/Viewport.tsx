@@ -34,6 +34,7 @@ export function Viewport() {
         height: clampToAtLeastOnePixel(rect.height),
       },
       onSelect: (entityId) => storeApi.getState().selectEntity(entityId),
+      onTransformChange: (entityId, transform) => storeApi.getState().updateEntity(entityId, { transform }),
     });
     sceneRef.current = scene;
 
