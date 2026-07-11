@@ -32,4 +32,15 @@ export { buildBoxMesh } from './primitives/box.js';
 export { buildCylinderMesh } from './primitives/cylinder.js';
 export { buildLBracketMesh } from './primitives/l-bracket.js';
 export { buildPrimitiveMesh } from './build-primitive-mesh.js';
+// Sketch coordinate frames: map a sketch's 2D points/vectors into the model
+// space that composeTransformMatrix/composeWorldMatrix then carry through the
+// model → world → camera → projection → viewport pipeline (docs/graphics-pipeline.md).
+export type { PlaneFrame, SketchPlane, Vec2 } from './sketch/plane.js';
+export {
+  getPlaneFrame,
+  modelPointToSketch,
+  modelVectorToSketch,
+  sketchPointToModel,
+  sketchVectorToModel,
+} from './sketch/plane.js';
 
