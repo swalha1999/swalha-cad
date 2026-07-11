@@ -43,7 +43,7 @@ const primitiveSchema = z.discriminatedUnion('kind', [
   lBracketPrimitiveSchema,
 ]);
 
-const cadEntitySchema = z.object({
+export const cadEntitySchema = z.object({
   id: z.string(),
   name: z.string(),
   primitive: primitiveSchema,
