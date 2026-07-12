@@ -240,7 +240,7 @@ test('extend: an arc grows along its circle to a boundary at non-grid coordinate
   const abx = lb.x - la.x;
   const aby = lb.y - la.y;
   const t = ((extended[0] - la.x) * abx + (extended[1] - la.y) * aby) / (abx * abx + aby * aby);
-  const foot = [la.x + t * abx, la.y + t * aby];
+  const foot: [number, number] = [la.x + t * abx, la.y + t * aby];
   expect(Math.hypot(extended[0] - foot[0], extended[1] - foot[1])).toBeLessThan(0.05);
   // Genuinely off-grid landing coordinate.
   expect(Math.abs(extended[0] / 10 - Math.round(extended[0] / 10))).toBeGreaterThan(0.05);
