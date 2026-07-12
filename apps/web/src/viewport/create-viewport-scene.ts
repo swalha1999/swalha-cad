@@ -371,8 +371,6 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
 
   let frameId = requestAnimationFrame(function loop() {
     controls.update();
-    // Hold the plane labels at a constant on-screen size as the camera orbits/zooms.
-    originPlanes.update(activeCamera);
     renderer.render(sceneSync.scene, activeCamera);
     frameId = requestAnimationFrame(loop);
   });

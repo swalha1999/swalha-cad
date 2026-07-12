@@ -121,7 +121,7 @@ test.describe('Part Studio visual regression at 1440x900', () => {
     await expect(page).toHaveScreenshot('part-studio.png');
   });
 
-  test('startup: origin planes render in real WebGL, compact and centred (no empty-canvas capture)', async ({ page }) => {
+  test('startup: origin planes render in real WebGL, prominent and centred (no empty-canvas capture)', async ({ page }) => {
     await page.goto('/');
     // Give the render loop several frames to draw the translucent planes.
     await page.waitForTimeout(500);
@@ -145,7 +145,19 @@ test.describe('Part Studio visual regression at 1440x900', () => {
     const bluish = drawn.filter(([r, , b]) => b > r);
     expect(bluish.length, 'the rendered planes must read blue, not flat/empty').toBeGreaterThanOrEqual(3);
 
-    // Compact framing: the planes never clip the top edge — the top-centre strip is
+    // The enlarged planes are a prominent central presence: sampling well out toward
+    // the mid-edges still lands on the (larger) cluster rather than empty background.
+    const spread = await samplePixelsAt(page, [
+      { fx: 0.3, fy: 0.5 },
+      { fx: 0.7, fy: 0.5 },
+      { fx: 0.5, fy: 0.28 },
+    ]);
+    expect(
+      spread.filter(([, , , a]) => a > 0).length,
+      'the enlarged planes must reach well out from the centre',
+    ).toBeGreaterThanOrEqual(2);
+
+    // Full framing: the planes never clip the top edge — the top-centre strip is
     // clear (transparent) sky above the cluster, proving no wall-like overflow.
     const top = await samplePixelsAt(page, [
       { fx: 0.5, fy: 0.02 },
@@ -253,5 +265,22 @@ test.describe('Part Studio visual regression at 1440x900', () => {
     // No horizontal overflow at the minimum desktop width.
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
+
+    // The enlarged origin planes stay fully framed at the smaller desktop size too:
+    // rendered at the centre, yet clear of the top and both side edges (no clipping).
+    await page.waitForTimeout(400);
+    const edges = await samplePixelsAt(page, [
+      { fx: 0.5, fy: 0.02 },
+      { fx: 0.02, fy: 0.5 },
+      { fx: 0.98, fy: 0.5 },
+    ]);
+    for (const [, , , a] of edges) {
+      expect(a, 'planes must stay clear of the viewport edges at 1280x800').toBe(0);
+    }
+    const core = await samplePixelsAt(page, [{ fx: 0.5, fy: 0.5 }, { fx: 0.46, fy: 0.52 }, { fx: 0.54, fy: 0.48 }]);
+    expect(
+      core.filter(([, , , a]) => a > 0).length,
+      'the planes must render centrally at 1280x800',
+    ).toBeGreaterThanOrEqual(2);
   });
 });

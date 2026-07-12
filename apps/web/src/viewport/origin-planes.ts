@@ -1,4 +1,4 @@
-import type { Object3D, OrthographicCamera, PerspectiveCamera } from 'three';
+import type { Object3D } from 'three';
 import {
   CanvasTexture,
   Color,
@@ -10,56 +10,43 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
-  Sprite,
-  SpriteMaterial,
-  Vector3,
 } from 'three';
 
 /** The three principal origin planes, keyed by their sketch-plane id. */
 export type OriginPlaneId = 'XY' | 'XZ' | 'YZ';
 
-/** Human labels shown floating on each plane (Onshape convention: XY→Top, XZ→Front, YZ→Right). */
+/** Human labels shown on each plane (Onshape convention: XY→Top, XZ→Front, YZ→Right). */
 export const ORIGIN_PLANE_LABEL: Record<OriginPlaneId, string> = { XY: 'Top', XZ: 'Front', YZ: 'Right' };
 
 /**
- * Half-extent (mm) of each square origin plane. Kept compact so the three planes
- * frame the empty startup origin with breathing room — the reference shows small,
- * centred, balanced rectangles, not walls that fill and clip through the viewport.
+ * Half-extent (mm) of each square origin plane. Enlarged from the legacy 50mm so the
+ * three planes fill more of the startup frame like the Onshape reference — a prominent,
+ * central cluster — while still staying clear of the viewport edges (no wall-like
+ * clipping): the framing invariant is asserted in create-viewport-scene.test.ts.
  */
-export const PLANE_HALF = 50;
-/** Translucent SWALHA-blue fill and a slightly stronger outline, matching the reference's outlined rectangles. */
+export const PLANE_HALF = 70;
+/**
+ * Translucent SWALHA-blue fill and a faint hairline outline. Both are kept very subtle
+ * and faded so the overlapping planes read as pale, Onshape-like guides rather than a
+ * saturated block; hover/select brighten the fill so a picked support still reads.
+ */
 const FILL_HEX = 0x2f6bff;
-const EDGE_HEX = 0x3b6fe0;
-const FILL_OPACITY = 0.07;
-const HOVER_FILL_OPACITY = 0.15;
-const SELECT_FILL_OPACITY = 0.22;
+const EDGE_HEX = 0x4d78e0;
+const FILL_OPACITY = 0.045;
+const HOVER_FILL_OPACITY = 0.11;
+const SELECT_FILL_OPACITY = 0.17;
+const OUTLINE_OPACITY = 0.28;
+/** The plane labels are faded too, printed onto the planes rather than shouting over them. */
+const LABEL_OPACITY = 0.4;
 
-/**
- * On-screen height of each plane label as a fraction of the viewport height. Labels
- * are re-scaled every frame to hold this constant apparent size regardless of how
- * far their plane sits from the camera, so Top/Front/Right stay small and balanced
- * (an unscaled sprite balloons on the plane nearest the camera).
- */
-const LABEL_SCREEN_FRACTION = 0.032;
-/** Pixel size of the label canvas texture; its aspect drives the sprite's width:height. */
-const LABEL_CANVAS_WIDTH = 208;
-const LABEL_CANVAS_HEIGHT = 72;
+/** Pixel size of the label canvas texture; its aspect drives the label plane's width:height. */
+const LABEL_CANVAS_WIDTH = 224;
+const LABEL_CANVAS_HEIGHT = 80;
 const LABEL_ASPECT = LABEL_CANVAS_WIDTH / LABEL_CANVAS_HEIGHT;
-
-/**
- * The world width/height a label sprite must adopt so it subtends {@link LABEL_SCREEN_FRACTION}
- * of the viewport height at `distance` from the camera. For a perspective camera the
- * visible world height grows with distance (so the sprite must too); for an orthographic
- * camera it is the fixed frustum height, independent of distance.
- */
-export function labelWorldSize(camera: PerspectiveCamera | OrthographicCamera, distance: number): { width: number; height: number } {
-  const viewHeight =
-    'isPerspectiveCamera' in camera && camera.isPerspectiveCamera
-      ? 2 * distance * Math.tan(((camera as PerspectiveCamera).fov * Math.PI) / 360)
-      : ((camera as OrthographicCamera).top - (camera as OrthographicCamera).bottom) / (camera as OrthographicCamera).zoom;
-  const height = viewHeight * LABEL_SCREEN_FRACTION;
-  return { width: height * LABEL_ASPECT, height };
-}
+/** On-plane label height as a fraction of {@link PLANE_HALF}; width follows the canvas aspect. */
+const LABEL_HEIGHT_FRACTION = 0.17;
+const LABEL_HEIGHT = PLANE_HALF * LABEL_HEIGHT_FRACTION;
+const LABEL_WIDTH = LABEL_HEIGHT * LABEL_ASPECT;
 
 /** Group rotations that lay a default-XY {@link PlaneGeometry} into each principal plane. */
 const PLANE_ROTATION: Record<OriginPlaneId, [number, number, number]> = {
@@ -71,28 +58,42 @@ const PLANE_ROTATION: Record<OriginPlaneId, [number, number, number]> = {
 const PLANE_ORDER: OriginPlaneId[] = ['XY', 'XZ', 'YZ'];
 
 /**
- * Where each plane's label floats, as a fraction of {@link PLANE_HALF} in the plane's
- * local frame. Tuned per plane so the three labels spread out near the origin cluster
- * (each reading against its own plane) instead of stacking in the centre.
+ * Where each plane's label sits, as a fraction of {@link PLANE_HALF} in the plane's
+ * local frame, tuned toward a tasteful edge/corner of each plane (near the origin
+ * cluster) so the three spread out and each reads against its own plane.
  */
 const LABEL_OFFSET: Record<OriginPlaneId, [number, number]> = {
-  // Local-frame offsets under the Z-up home view. XY (Top): local x→+X (screen
-  // lower-right), local y→+Y (screen upper-right) — nudge toward the diamond's
-  // back so "Top" reads near the top-centre of the horizontal plane. XZ (Front):
-  // local x→+X, local y→-Z — negative x/y lift the label to the wall's upper-left
-  // like the reference. YZ (Right): local x→-Z, local y→+Y — negative x lifts it
+  // Local-frame offsets under the Z-up home view. XY (Top): local +x→world +X, local
+  // +y→world +Y — nudge toward the plane's far (back) edge so "Top" sits near the top
+  // of the horizontal diamond. XZ (Front): local +x→world +X, local +y→world -Z, so a
+  // negative local y lifts the label toward the upper-left of the front wall. YZ
+  // (Right): local +x→world -Z, local +y→world +Y, so a negative local x lifts it
   // toward the top of the right wall.
-  XY: [0.3, -0.3],
-  XZ: [-0.5, -0.31],
-  YZ: [-0.19, 0.5],
+  XY: [-0.16, 0.6],
+  XZ: [-0.52, -0.62],
+  YZ: [-0.58, 0.14],
 };
 
 /**
- * Builds a floating text label as a {@link Sprite}. Returns `null` when a 2D
- * canvas context is unavailable (e.g. jsdom under unit tests), so the planes
- * still render without their labels rather than throwing.
+ * In-plane label rotations (applied in the plane group's local frame) chosen so each
+ * label — though coplanar with its plane and inheriting the plane's 3D orientation —
+ * still reads upright and left-to-right from the default Z-up home camera instead of
+ * mirrored or upside down. XY needs no roll; XZ flips about its local x to face the
+ * front camera the right way up; YZ rolls a quarter turn so its baseline runs along
+ * world +Y up the right wall.
  */
-function createLabelSprite(text: string): Sprite | null {
+const LABEL_ROTATION: Record<OriginPlaneId, [number, number, number]> = {
+  XY: [0, 0, 0],
+  XZ: [Math.PI, 0, 0],
+  YZ: [0, 0, Math.PI / 2],
+};
+
+/**
+ * Builds the label's canvas texture, or `null` when a 2D canvas context is unavailable
+ * (e.g. jsdom under unit tests). The label mesh itself is always built so its geometry,
+ * placement, and orientation stay testable; only the drawn glyphs are skipped here.
+ */
+function createLabelTexture(text: string): CanvasTexture | null {
   const canvas = document.createElement('canvas');
   canvas.width = LABEL_CANVAS_WIDTH;
   canvas.height = LABEL_CANVAS_HEIGHT;
@@ -100,27 +101,50 @@ function createLabelSprite(text: string): Sprite | null {
   if (!ctx) return null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = new Color(EDGE_HEX).getStyle();
-  // The glyphs fill most of the canvas height so the sprite's on-screen size maps
-  // almost entirely to legible text rather than transparent padding.
-  ctx.font = '600 52px system-ui, sans-serif';
+  // The glyphs fill most of the canvas height so the label's on-plane size maps almost
+  // entirely to legible text rather than transparent padding.
+  ctx.font = '600 54px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-  const texture = new CanvasTexture(canvas);
-  const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
-  const sprite = new Sprite(material);
-  // Actual scale is set every frame by OriginPlanes.update() to hold a constant screen size.
-  sprite.scale.set(LABEL_ASPECT, 1, 1);
-  return sprite;
+  return new CanvasTexture(canvas);
 }
 
-/** One built origin plane: its pickable fill mesh, outline, and (optional) floating label, grouped. */
+/**
+ * Builds one plane label as a faded, coplanar {@link Mesh} that is added to the plane's
+ * group — so it inherits the plane's orientation and foreshortening (printed on the 3D
+ * plane) rather than billboarding to face the camera. Its in-plane roll keeps it legible
+ * from the home camera; DoubleSide + no depth test let it read over the fills from either
+ * side.
+ */
+function createLabelMesh(id: OriginPlaneId): Mesh {
+  const geometry = new PlaneGeometry(LABEL_WIDTH, LABEL_HEIGHT);
+  const texture = createLabelTexture(ORIGIN_PLANE_LABEL[id]);
+  const material = new MeshBasicMaterial({
+    color: 0xffffff,
+    map: texture,
+    transparent: true,
+    opacity: LABEL_OPACITY,
+    side: DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const label = new Mesh(geometry, material);
+  label.userData['planeId'] = id;
+  label.renderOrder = 3;
+  const [ox, oy] = LABEL_OFFSET[id];
+  label.position.set(PLANE_HALF * ox, PLANE_HALF * oy, 0);
+  label.rotation.set(...LABEL_ROTATION[id]);
+  return label;
+}
+
+/** One built origin plane: its pickable fill mesh, outline, and printed-on label, grouped. */
 interface BuiltPlane {
   id: OriginPlaneId;
   group: Group;
   fill: Mesh;
   outline: LineSegments;
-  label: Sprite | null;
+  label: Mesh;
 }
 
 export interface OriginPlanes {
@@ -128,8 +152,8 @@ export interface OriginPlanes {
   readonly objects: readonly Object3D[];
   /** The pickable fill meshes, tagged with `userData.planeId`, for raycasting. */
   readonly pickTargets: readonly Mesh[];
-  /** Re-scales every label to a constant on-screen size for the given camera; call once per frame. */
-  update(camera: PerspectiveCamera | OrthographicCamera): void;
+  /** The printed-on-plane label meshes, in the same order as {@link objects}. */
+  readonly labels: readonly Mesh[];
   /** Shows or hides every origin plane. */
   setVisible(visible: boolean): void;
   /** Applies the hover tint to one plane (or clears every hover with `null`). */
@@ -155,19 +179,13 @@ function buildPlane(id: OriginPlaneId): BuiltPlane {
 
   const outline = new LineSegments(
     new EdgesGeometry(geometry),
-    new LineBasicMaterial({ color: EDGE_HEX, transparent: true, opacity: 0.6 }),
+    new LineBasicMaterial({ color: EDGE_HEX, transparent: true, opacity: OUTLINE_OPACITY }),
   );
+  outline.renderOrder = 2;
 
-  const label = createLabelSprite(ORIGIN_PLANE_LABEL[id]);
-  if (label) {
-    // Float the label near the plane's top edge, close to the shared origin cluster
-    // (like the reference), spread per plane so the three never stack on each other.
-    const [ox, oy] = LABEL_OFFSET[id];
-    label.position.set(PLANE_HALF * ox, PLANE_HALF * oy, 0);
-  }
+  const label = createLabelMesh(id);
 
-  group.add(fill, outline);
-  if (label) group.add(label);
+  group.add(fill, outline, label);
   return { id, group, fill, outline, label };
 }
 
@@ -175,7 +193,8 @@ function buildPlane(id: OriginPlaneId): BuiltPlane {
  * Builds the three translucent, blue-outlined origin planes (Top/Front/Right)
  * that frame the empty startup viewport and act as sketch supports. Each plane's
  * fill mesh is tagged with its `planeId` for raycast picking; hover/selected
- * tints brighten the fill so a chosen support reads distinctly.
+ * tints brighten the fill so a chosen support reads distinctly. Each plane also
+ * carries a faded label printed onto its 3D surface (co-planar, not billboarded).
  */
 export function createOriginPlanes(): OriginPlanes {
   const planes = PLANE_ORDER.map(buildPlane);
@@ -191,21 +210,11 @@ export function createOriginPlanes(): OriginPlanes {
 
   let hoveredId: OriginPlaneId | null = null;
   let selectedId: OriginPlaneId | null = null;
-  const labelWorld = new Vector3();
 
   return {
     objects: planes.map((plane) => plane.group),
     pickTargets: planes.map((plane) => plane.fill),
-
-    update(camera) {
-      for (const plane of planes) {
-        if (!plane.label || !plane.group.visible) continue;
-        plane.label.getWorldPosition(labelWorld);
-        const distance = camera.position.distanceTo(labelWorld);
-        const { width, height } = labelWorldSize(camera, distance);
-        plane.label.scale.set(width, height, 1);
-      }
-    },
+    labels: planes.map((plane) => plane.label),
 
     setVisible(visible) {
       for (const plane of planes) plane.group.visible = visible;
@@ -230,11 +239,10 @@ export function createOriginPlanes(): OriginPlanes {
         (plane.fill.material as MeshBasicMaterial).dispose();
         plane.outline.geometry.dispose();
         (plane.outline.material as LineBasicMaterial).dispose();
-        if (plane.label) {
-          const material = plane.label.material as SpriteMaterial;
-          material.map?.dispose();
-          material.dispose();
-        }
+        plane.label.geometry.dispose();
+        const labelMaterial = plane.label.material as MeshBasicMaterial;
+        labelMaterial.map?.dispose();
+        labelMaterial.dispose();
       }
     },
   };

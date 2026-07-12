@@ -922,8 +922,9 @@ describe('createViewportScene', () => {
     // Every plane corner stays inside the frame with real breathing room on all sides (no wall-like clipping).
     expect(maxX).toBeLessThan(0.9);
     expect(maxY).toBeLessThan(0.8);
-    // ...yet the cluster is still a prominent, central presence rather than a distant dot.
-    expect(maxRadius).toBeGreaterThan(0.35);
+    // ...yet the enlarged planes fill much more of the frame than the legacy compact
+    // ones (which projected to a radius of ~0.6) — a prominent, central presence.
+    expect(maxRadius).toBeGreaterThan(0.75);
 
     scene.dispose();
   });
