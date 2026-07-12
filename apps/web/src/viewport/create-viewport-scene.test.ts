@@ -1142,21 +1142,10 @@ describe('createViewportScene', () => {
       scene.dispose();
     });
 
-    it('lays the ground grid on the XY plane (its normal is world +Z)', () => {
+    it('does not render a floor grid in the 3D viewer', () => {
       const scene = emptyScene();
-      scene.scene.updateMatrixWorld(true);
-      const grid = scene.scene.children.find((child) => child.type === 'GridHelper')!;
-      expect(grid).toBeTruthy();
-      // A GridHelper is authored in its local XZ plane (normal +Y); on the XY ground
-      // plane its world normal must point along world +Z.
-      const normal = new Vector3(0, 1, 0).applyQuaternion(grid.quaternion).normalize();
-      expect(Math.abs(normal.z)).toBeCloseTo(1, 5);
-      expect(Math.abs(normal.x)).toBeCloseTo(0, 5);
-      expect(Math.abs(normal.y)).toBeCloseTo(0, 5);
-      // It sits just below the origin planes along the up (Z) axis.
-      expect(grid.position.z).toBeLessThan(0);
-      expect(grid.position.y).toBeCloseTo(0, 6);
-
+      const grid = scene.scene.children.find((child) => child.type === 'GridHelper');
+      expect(grid).toBeUndefined();
       scene.dispose();
     });
 

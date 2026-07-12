@@ -14,8 +14,7 @@ import {
   BufferGeometry,
   DirectionalLight,
   DoubleSide,
-  GridHelper,
-  LineBasicMaterial,
+
   Mesh,
   MeshBasicMaterial,
   Raycaster,
@@ -29,7 +28,7 @@ import { createTransformControls } from './create-transform-controls.js';
 import { faceOverlayPositions } from './face-overlay.js';
 import { isClick } from './is-click.js';
 import type { OriginPlaneId } from './origin-planes.js';
-import { PLANE_HALF, createOriginPlanes } from './origin-planes.js';
+import { createOriginPlanes } from './origin-planes.js';
 import { pickEntityId } from './pick-entity.js';
 import type { FacePick } from './pick-face.js';
 import { pickFace } from './pick-face.js';
@@ -194,19 +193,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   keyLight.position.set(140, -160, 220);
   const fillLight = new DirectionalLight(0xffffff, 0.45);
   fillLight.position.set(-120, 140, 90);
-  // A faint ground grid, sitting just below the compact origin planes, adds subtle
-  // depth without competing with them (the reference grid is barely-there). A
-  // GridHelper is authored in its local XZ plane; rotate it onto the XY ground
-  // plane and drop it along -Z so it lies flat beneath the horizontal Top plane.
-  const groundGrid = new GridHelper(400, 40, 0xd2d8e2, 0xe7ebf1);
-  groundGrid.rotation.x = Math.PI / 2;
-  groundGrid.position.z = -PLANE_HALF;
-  const groundGridMaterial = groundGrid.material as LineBasicMaterial | LineBasicMaterial[];
-  for (const material of Array.isArray(groundGridMaterial) ? groundGridMaterial : [groundGridMaterial]) {
-    material.transparent = true;
-    material.opacity = 0.5;
-  }
-  sceneSync.scene.add(ambientLight, keyLight, fillLight, groundGrid);
+  sceneSync.scene.add(ambientLight, keyLight, fillLight);
 
   // The three translucent, blue-outlined origin planes (Top/Front/Right) framing
   // the empty startup origin and acting as sketch supports during the command.
@@ -627,9 +614,7 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       transformControls.dispose();
       for (const object of originPlanes.objects) sceneSync.scene.remove(object);
       originPlanes.dispose();
-      sceneSync.scene.remove(groundGrid, ambientLight, keyLight, fillLight);
-      groundGrid.geometry.dispose();
-      (groundGrid.material as Material).dispose();
+      sceneSync.scene.remove(ambientLight, keyLight, fillLight);
       sceneSync.dispose();
       renderer.dispose();
     },
