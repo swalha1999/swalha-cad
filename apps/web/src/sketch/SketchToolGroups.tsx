@@ -1,4 +1,16 @@
-import { Circle, Dot, Minus, MoreHorizontal, Ruler, Square } from 'lucide-react';
+import {
+  ChevronDown,
+  Circle,
+  CircleDashed,
+  Dot,
+  Hexagon,
+  Minus,
+  MoreHorizontal,
+  Ruler,
+  Square,
+  SquareDashed,
+  SquareDot,
+} from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../components/ui/IconButton.js';
@@ -17,13 +29,13 @@ export interface ToolbarItem {
   onSelect: () => void;
 }
 
-function itemTooltip(item: ToolbarItem): string {
-  return item.shortcut ? `${item.label} (${item.shortcut})` : item.label;
+function itemTooltip(label: string, shortcut?: string): string {
+  return shortcut ? `${label} (${shortcut})` : label;
 }
 
 function ToolbarItemButton({ item }: { item: ToolbarItem }) {
   return (
-    <Tooltip content={itemTooltip(item)}>
+    <Tooltip content={itemTooltip(item.label, item.shortcut)}>
       <IconButton
         aria-label={item.label}
         aria-pressed={item.pressed}
@@ -102,42 +114,224 @@ export function ToolbarGroup({ label, items, overflow }: { label: string; items:
   );
 }
 
-const CREATE_TOOLS: { kind: SketchToolKind; label: string; icon: ComponentType; shortcut: string }[] = [
-  { kind: 'point', label: 'Point', icon: Dot, shortcut: 'P' },
-  { kind: 'line', label: 'Line', icon: Minus, shortcut: 'L' },
-  { kind: 'rectangle', label: 'Rectangle', icon: Square, shortcut: 'R' },
-  { kind: 'circle', label: 'Circle', icon: Circle, shortcut: 'C' },
-];
+/** One selectable variant within a tool family (e.g. corner vs. center rectangle). */
+interface ToolVariant {
+  kind: SketchToolKind;
+  label: string;
+  icon: ComponentType;
+  shortcut?: string;
+}
 
 /**
- * The sketch creation toolbar group: the existing point / line / rectangle /
- * circle tools plus the construction-geometry toggle, laid out with the shared
- * {@link ToolbarGroup} so shortcuts, tooltips, and overflow are consistent. Modify
- * and additional creation tools are deferred, but slot into this same structure.
+ * A family of related creation tools. Single-variant families render one plain
+ * button; multi-variant families render a split button whose primary action
+ * repeats the last-used variant and whose caret opens the full variant menu.
+ * `label`/`shortcut` name and key the family's primary button.
+ */
+interface ToolFamily {
+  id: string;
+  label: string;
+  shortcut?: string;
+  variants: ToolVariant[];
+}
+
+const TOOL_FAMILIES: ToolFamily[] = [
+  { id: 'point', label: 'Point', shortcut: 'P', variants: [{ kind: 'point', label: 'Point', icon: Dot, shortcut: 'P' }] },
+  { id: 'line', label: 'Line', shortcut: 'L', variants: [{ kind: 'line', label: 'Line', icon: Minus, shortcut: 'L' }] },
+  {
+    id: 'rectangle',
+    label: 'Rectangle',
+    shortcut: 'R',
+    variants: [
+      { kind: 'rectangle', label: 'Corner rectangle', icon: Square, shortcut: 'R' },
+      { kind: 'rectangle-center', label: 'Center rectangle', icon: SquareDot },
+      { kind: 'rectangle-3point', label: '3-point rectangle', icon: SquareDashed },
+    ],
+  },
+  {
+    id: 'circle',
+    label: 'Circle',
+    shortcut: 'C',
+    variants: [
+      { kind: 'circle', label: 'Center circle', icon: Circle, shortcut: 'C' },
+      { kind: 'circle-3point', label: '3-point circle', icon: CircleDashed },
+    ],
+  },
+];
+
+/** Renders an icon component as a node (lucide icons are components). */
+function iconNode(Icon: ComponentType): ReactNode {
+  return <Icon />;
+}
+
+/**
+ * A split button for a multi-variant family: the primary button repeats the
+ * family's last-used variant (defaulting to the first); the caret opens an
+ * accessible radio menu of every variant, marking the active one. Both paths run
+ * through {@link onSelect}, which the parent uses to record the last-used variant.
+ */
+function SplitToolButton({
+  family,
+  lastVariant,
+  activeTool,
+  onSelect,
+}: {
+  family: ToolFamily;
+  lastVariant: SketchToolKind;
+  activeTool: SketchToolKind | null;
+  onSelect: (kind: SketchToolKind, options: { toggle: boolean }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const primary = family.variants.find((variant) => variant.kind === lastVariant) ?? family.variants[0]!;
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: MouseEvent): void {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  return (
+    <div className="sketch-split-button" role="group" aria-label={family.label} ref={containerRef}>
+      <Tooltip content={itemTooltip(primary.label, family.shortcut)}>
+        <IconButton
+          aria-label={family.label}
+          aria-pressed={activeTool === primary.kind}
+          aria-keyshortcuts={family.shortcut}
+          icon={iconNode(primary.icon)}
+          onClick={() => onSelect(primary.kind, { toggle: true })}
+        />
+      </Tooltip>
+      <Tooltip content={`${family.label} variants`}>
+        <IconButton
+          className="sketch-split-button__caret"
+          aria-label={`${family.label} variants`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          icon={<ChevronDown />}
+          onClick={() => setOpen((value) => !value)}
+        />
+      </Tooltip>
+      {open && (
+        <ul className="sketch-tool-group__menu" role="menu" aria-label={`${family.label} variants`}>
+          {family.variants.map((variant) => (
+            <li key={variant.kind} role="none">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={activeTool === variant.kind}
+                aria-label={variant.label}
+                aria-keyshortcuts={variant.shortcut}
+                className="sketch-tool-group__menu-item"
+                onClick={() => {
+                  onSelect(variant.kind, { toggle: false });
+                  setOpen(false);
+                }}
+              >
+                <span className="sketch-tool-group__menu-icon" aria-hidden="true">
+                  {iconNode(variant.icon)}
+                </span>
+                <span className="sketch-split-button__menu-label">{variant.label}</span>
+                {variant.shortcut ? <span className="sketch-split-button__menu-shortcut">{variant.shortcut}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The sketch creation toolbar: point / line / rectangle / circle / polygon tool
+ * families plus the construction-geometry toggle, laid out as dense icon-first
+ * controls. Rectangle and circle are split buttons whose primary action repeats
+ * the last-used variant; polygon carries an inline side-count control. The
+ * construction toggle flips the mode for new geometry, or (with a selection)
+ * converts the selected geometry — all through the store so every committing
+ * action still flows through the feature-command history.
  */
 export function SketchToolGroups() {
   const session = useCadStore((state) => state.sketch);
   const setSketchTool = useCadStore((state) => state.setSketchTool);
-  const setSketchConstruction = useCadStore((state) => state.setSketchConstruction);
+  const toggleConstruction = useCadStore((state) => state.toggleConstruction);
+  const setSketchPolygonSides = useCadStore((state) => state.setSketchPolygonSides);
+  // Remembers the last variant chosen per family so the split button's primary action repeats it.
+  const [lastVariant, setLastVariant] = useState<Partial<Record<string, SketchToolKind>>>({});
 
   if (!session) return null;
 
-  const createItems: ToolbarItem[] = CREATE_TOOLS.map(({ kind, label, icon: Icon, shortcut }) => ({
-    id: kind,
-    label,
-    icon: <Icon />,
-    shortcut,
-    pressed: session.tool === kind,
-    onSelect: () => setSketchTool(session.tool === kind ? null : kind),
-  }));
+  const activeTool = session.tool;
 
-  createItems.push({
-    id: 'construction',
-    label: 'Construction',
-    icon: <Ruler />,
-    pressed: session.construction,
-    onSelect: () => setSketchConstruction(!session.construction),
-  });
+  const selectVariant = (familyId: string, kind: SketchToolKind, options: { toggle: boolean }): void => {
+    setLastVariant((current) => ({ ...current, [familyId]: kind }));
+    setSketchTool(options.toggle && activeTool === kind ? null : kind);
+  };
 
-  return <ToolbarGroup label="Create" items={createItems} />;
+  return (
+    <div className="sketch-tool-group" role="group" aria-label="Create">
+      {TOOL_FAMILIES.map((family) => {
+        if (family.variants.length === 1) {
+          const only = family.variants[0]!;
+          return (
+            <ToolbarItemButton
+              key={family.id}
+              item={{
+                id: family.id,
+                label: family.label,
+                icon: iconNode(only.icon),
+                ...(family.shortcut ? { shortcut: family.shortcut } : {}),
+                pressed: activeTool === only.kind,
+                onSelect: () => selectVariant(family.id, only.kind, { toggle: true }),
+              }}
+            />
+          );
+        }
+        return (
+          <SplitToolButton
+            key={family.id}
+            family={family}
+            lastVariant={lastVariant[family.id] ?? family.variants[0]!.kind}
+            activeTool={activeTool}
+            onSelect={(kind, options) => selectVariant(family.id, kind, options)}
+          />
+        );
+      })}
+
+      <div className="sketch-polygon" role="group" aria-label="Polygon">
+        <ToolbarItemButton
+          item={{
+            id: 'polygon',
+            label: 'Polygon',
+            icon: iconNode(Hexagon),
+            pressed: activeTool === 'polygon',
+            onSelect: () => setSketchTool(activeTool === 'polygon' ? null : 'polygon'),
+          }}
+        />
+        <Tooltip content="Number of polygon sides">
+          <input
+            type="number"
+            min={3}
+            className="sketch-polygon__sides"
+            aria-label="Polygon sides"
+            value={session.polygonSides}
+            onChange={(event) => setSketchPolygonSides(Number(event.target.value))}
+          />
+        </Tooltip>
+      </div>
+
+      <ToolbarItemButton
+        item={{
+          id: 'construction',
+          label: 'Construction',
+          icon: iconNode(Ruler),
+          pressed: session.construction,
+          onSelect: () => toggleConstruction(),
+        }}
+      />
+    </div>
+  );
 }

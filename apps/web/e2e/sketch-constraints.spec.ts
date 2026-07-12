@@ -20,12 +20,12 @@ async function enterXySketch(page: Page): Promise<void> {
 const EDGES = { top: 0, right: 1, bottom: 2, left: 3 } as const;
 
 async function drawRectangle(page: Page, canvas: Locator): Promise<void> {
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   await clickCanvas(page, canvas, 0.35, 0.4);
   await clickCanvas(page, canvas, 0.62, 0.62);
   await expect(canvas.locator('.sketch-overlay__line')).toHaveCount(4);
   // Toggle the rectangle tool off so the canvas enters selection mode.
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
 }
 
 /** Selects a rectangle edge by clicking the centre of its rendered line. */

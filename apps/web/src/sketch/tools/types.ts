@@ -47,7 +47,15 @@ export interface SnapResult {
   kind: SnapKind;
 }
 
-export type SketchToolKind = 'point' | 'line' | 'rectangle' | 'circle';
+export type SketchToolKind =
+  | 'point'
+  | 'line'
+  | 'rectangle'
+  | 'rectangle-center'
+  | 'rectangle-3point'
+  | 'circle'
+  | 'circle-3point'
+  | 'polygon';
 
 /**
  * A plane-local description of geometry to append to the active sketch. `lines`
@@ -91,7 +99,48 @@ export interface CircleToolState {
   cursor: Vec2 | null;
 }
 
-export type ToolState = PointToolState | LineToolState | RectangleToolState | CircleToolState;
+/** Center rectangle: first click sets the center, second click an opposite corner. */
+export interface RectangleCenterToolState {
+  tool: 'rectangle-center';
+  center: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+/** Three-point rectangle: first two clicks set an edge, the third its perpendicular width. */
+export interface Rectangle3PointToolState {
+  tool: 'rectangle-3point';
+  start: SnapResult | null;
+  edgeEnd: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+/** Three-point circle: three rim clicks define the circumcircle. */
+export interface Circle3PointToolState {
+  tool: 'circle-3point';
+  points: SnapResult[];
+  cursor: Vec2 | null;
+}
+
+/** Regular polygon: first click sets the center, second a vertex; `sides` is the loop count. */
+export interface PolygonToolState {
+  tool: 'polygon';
+  sides: number;
+  center: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+export type ToolState =
+  | PointToolState
+  | LineToolState
+  | RectangleToolState
+  | RectangleCenterToolState
+  | Rectangle3PointToolState
+  | CircleToolState
+  | Circle3PointToolState
+  | PolygonToolState;
+
+/** The default number of sides a freshly activated polygon tool starts with. */
+export const DEFAULT_POLYGON_SIDES = 6;
 
 /**
  * The result of advancing a tool: the next state, an optional commit to apply

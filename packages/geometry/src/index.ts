@@ -61,6 +61,12 @@ export type { LoopSegment, SelfIntersection } from './sketch/intersections.js';
 export { segmentsIntersect, findLoopSelfIntersections } from './sketch/intersections.js';
 export type { LineLoopProfile, CircleProfile, SketchProfile, ProfileResult } from './sketch/profile.js';
 export { detectSketchProfile } from './sketch/profile.js';
+// Pure plane-local construction geometry for the Onshape-style creation tools:
+// centre/3-point rectangles, circumcircles (3-point circle), and regular
+// polygons. Each returns null for a degenerate/collinear input so tools reject
+// it without mutating the document.
+export type { RectangleCorners, Circle } from './sketch/shapes.js';
+export { centerRectangleCorners, circumcircle, regularPolygonVertices, threePointRectangleCorners } from './sketch/shapes.js';
 // Watertight profile extrusion: sweep a sketch's single detected closed
 // profile (one line loop or one circle) along its plane normal into an indexed
 // hard-shaded solid, triangulating caps deterministically and generating side

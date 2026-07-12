@@ -25,13 +25,13 @@ test('creates an XY sketch, draws a rectangle and circle, finishes, and persists
   const canvas = page.getByRole('img', { name: 'Sketch canvas' });
 
   // Rectangle: two opposite corners.
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   await clickCanvas(page, canvas, 0.35, 0.4);
   await clickCanvas(page, canvas, 0.62, 0.62);
   await expect(canvas.locator('.sketch-overlay__line')).toHaveCount(4);
 
   // Circle: center then rim.
-  await page.getByRole('button', { name: 'Circle' }).click();
+  await page.getByRole('button', { name: 'Circle', exact: true }).click();
   await clickCanvas(page, canvas, 0.5, 0.35);
   await clickCanvas(page, canvas, 0.58, 0.35);
   await expect(canvas.locator('.sketch-overlay__circle')).toHaveCount(1);
@@ -70,7 +70,7 @@ test('cancels the active tool step with Escape without committing geometry', asy
   await enterXySketch(page);
   const canvas = page.getByRole('img', { name: 'Sketch canvas' });
 
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   await clickCanvas(page, canvas, 0.4, 0.4); // first corner placed, pending
   await page.keyboard.press('Escape');
   await clickCanvas(page, canvas, 0.6, 0.6); // would-be second corner, but the step was cancelled

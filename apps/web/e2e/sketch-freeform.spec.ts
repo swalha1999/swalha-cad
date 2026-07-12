@@ -67,12 +67,12 @@ test('draws with the grid hidden and snapping still off (continuous placement)',
   await expect(canvas.locator('.sketch-overlay__grid')).toHaveCount(0);
 
   // Drawing still works with the grid hidden.
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   await clickCanvas(page, canvas, 0.34, 0.41);
   await clickCanvas(page, canvas, 0.63, 0.6);
   await expect(canvas.locator('.sketch-overlay__line')).toHaveCount(4);
 
-  await page.getByRole('button', { name: 'Rectangle' }).click();
+  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   await page.getByRole('button', { name: 'Finish Sketch' }).click();
 
   // The corners are continuous coordinates, not quantized grid nodes.

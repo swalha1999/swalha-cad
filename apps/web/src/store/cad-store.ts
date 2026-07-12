@@ -27,12 +27,14 @@ import type { SolveDiagnostic, SolveStatus } from '@swalha-cad/geometry';
 import { solveSketch } from '@swalha-cad/geometry';
 import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
+import { applyConstructionToggle } from '../sketch/construction.js';
 import { removeSketchEntities } from '../sketch/delete.js';
 import type { NewConstraint } from '../sketch/constraint-actions.js';
 import { pickForDimension, resolveFromSelection } from '../sketch/dimension.js';
 import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
 import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
+import { DEFAULT_POLYGON_SIDES } from '../sketch/tools/types.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
 
 export type CameraProjection = 'perspective' | 'orthographic';
@@ -70,6 +72,8 @@ export interface SketchSession {
   tool: SketchToolKind | null;
   toolState: ToolState | null;
   construction: boolean;
+  /** Desired side count for the regular-polygon tool; seeds each new polygon tool state. */
+  polygonSides: number;
   cursor: Vec2 | null;
   cursorSnap: SnapKind | null;
   /** Non-null while the Distance/Dimension tool owns the sketch (see {@link DimensionState}). */
@@ -166,6 +170,14 @@ export interface CadStoreState {
   setSketchTool: (tool: SketchToolKind | null) => void;
   /** Toggles whether newly drawn geometry is construction geometry. */
   setSketchConstruction: (construction: boolean) => void;
+  /**
+   * The construction toggle's combined behaviour: with sketch entities selected,
+   * flips their construction flag through history (a mixed selection all becomes
+   * construction); with nothing selected, flips the mode for newly drawn geometry.
+   */
+  toggleConstruction: () => void;
+  /** Sets the regular-polygon side count (clamped to at least 3), updating any active polygon tool. */
+  setSketchPolygonSides: (sides: number) => void;
   /** Feeds one interaction event to the active tool, committing any produced geometry through history. */
   dispatchSketchEvent: (event: ToolEvent) => void;
   /** Toggles a sketch entity's membership in the constraint selection; no-op for ids outside the active sketch. */
@@ -590,7 +602,17 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: null,
         // Look orthographically straight down the plane normal for a true 2D workspace.
         cameraProjection: 'orthographic',
-        sketch: { featureId, plane, tool: null, toolState: null, construction: false, cursor: null, cursorSnap: null, dimension: null },
+        sketch: {
+          featureId,
+          plane,
+          tool: null,
+          toolState: null,
+          construction: false,
+          polygonSides: DEFAULT_POLYGON_SIDES,
+          cursor: null,
+          cursorSnap: null,
+          dimension: null,
+        },
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
@@ -601,10 +623,15 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     setSketchTool: (tool) => {
       const session = get().sketch;
       if (!session) return;
+      // The polygon tool starts from the session's chosen side count.
+      let toolState = tool ? initialToolState(tool) : null;
+      if (toolState && toolState.tool === 'polygon') {
+        toolState = { ...toolState, sides: session.polygonSides };
+      }
       // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
       // Either way the Distance/Dimension tool no longer owns the sketch.
       set({
-        sketch: { ...session, tool, toolState: tool ? initialToolState(tool) : null, dimension: null },
+        sketch: { ...session, tool, toolState, dimension: null },
         ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
     },
@@ -613,6 +640,44 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       const session = get().sketch;
       if (!session) return;
       set({ sketch: { ...session, construction } });
+    },
+
+    toggleConstruction: () => {
+      const state = get();
+      const session = state.sketch;
+      if (!session) return;
+      // No selection: the toggle just flips the mode for newly drawn geometry.
+      if (state.sketchSelection.length === 0) {
+        set({ sketch: { ...session, construction: !session.construction } });
+        return;
+      }
+      const sketch = selectActiveSketch(state);
+      if (!sketch) return;
+      const entities = applyConstructionToggle(sketch, state.sketchSelection);
+      if (entities === sketch.entities) return; // nothing valid selected
+      const nextHistory = applyCommandToHistory(state.history, {
+        type: 'feature.update',
+        id: sketch.id,
+        patch: { entities },
+      });
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? sketch),
+      });
+    },
+
+    setSketchPolygonSides: (sides) => {
+      const session = get().sketch;
+      if (!session) return;
+      const clamped = Math.max(3, Math.round(sides));
+      const toolState =
+        session.toolState && session.toolState.tool === 'polygon'
+          ? { ...session.toolState, sides: clamped }
+          : session.toolState;
+      set({ sketch: { ...session, polygonSides: clamped, toolState } });
     },
 
     dispatchSketchEvent: (event) => {

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { toolPreview } from './preview.js';
-import type { LineToolState, RectangleToolState, CircleToolState, SnapResult } from './tools/types.js';
+import type {
+  Circle3PointToolState,
+  CircleToolState,
+  LineToolState,
+  PolygonToolState,
+  Rectangle3PointToolState,
+  RectangleCenterToolState,
+  RectangleToolState,
+  SnapResult,
+} from './tools/types.js';
 
 function snap(x: number, y: number): SnapResult {
   return { point: { x, y }, ref: { kind: 'new', x, y }, kind: 'grid' };
@@ -36,5 +45,54 @@ describe('toolPreview', () => {
   it('omits a zero-radius circle preview', () => {
     const state: CircleToolState = { tool: 'circle', center: snap(2, 2), cursor: { x: 2, y: 2 } };
     expect(toolPreview(state, { x: 2, y: 2 }).circles).toEqual([]);
+  });
+
+  it('previews a center rectangle symmetric about the center', () => {
+    const state: RectangleCenterToolState = { tool: 'rectangle-center', center: snap(0, 0), cursor: { x: 4, y: 3 } };
+    const preview = toolPreview(state, { x: 4, y: 3 });
+    expect(preview.segments).toHaveLength(4);
+    expect(preview.segments[0]).toEqual({ a: { x: 4, y: 3 }, b: { x: -4, y: 3 } });
+  });
+
+  it('omits a degenerate center rectangle preview', () => {
+    const state: RectangleCenterToolState = { tool: 'rectangle-center', center: snap(2, 2), cursor: { x: 2, y: 8 } };
+    expect(toolPreview(state, { x: 2, y: 8 }).segments).toEqual([]);
+  });
+
+  it('previews the first edge of a 3-point rectangle before the width is set', () => {
+    const state: Rectangle3PointToolState = { tool: 'rectangle-3point', start: snap(0, 0), edgeEnd: null, cursor: { x: 10, y: 0 } };
+    const preview = toolPreview(state, { x: 10, y: 0 });
+    expect(preview.segments).toEqual([{ a: { x: 0, y: 0 }, b: { x: 10, y: 0 } }]);
+  });
+
+  it('previews the full 3-point rectangle once the edge is placed', () => {
+    const state: Rectangle3PointToolState = {
+      tool: 'rectangle-3point',
+      start: snap(0, 0),
+      edgeEnd: snap(10, 0),
+      cursor: { x: 3, y: 4 },
+    };
+    const preview = toolPreview(state, { x: 3, y: 4 });
+    expect(preview.segments).toHaveLength(4);
+    expect(preview.segments[1]).toEqual({ a: { x: 10, y: 0 }, b: { x: 10, y: 4 } });
+  });
+
+  it('previews a 3-point circle through two points and the cursor', () => {
+    const state: Circle3PointToolState = { tool: 'circle-3point', points: [snap(1, 0), snap(0, 1)], cursor: { x: -1, y: 0 } };
+    const preview = toolPreview(state, { x: -1, y: 0 });
+    expect(preview.circles).toHaveLength(1);
+    expect(preview.circles[0]!.center.x).toBeCloseTo(0, 9);
+    expect(preview.circles[0]!.radius).toBeCloseTo(1, 9);
+  });
+
+  it('omits a collinear 3-point circle preview', () => {
+    const state: Circle3PointToolState = { tool: 'circle-3point', points: [snap(0, 0), snap(1, 1)], cursor: { x: 2, y: 2 } };
+    expect(toolPreview(state, { x: 2, y: 2 }).circles).toEqual([]);
+  });
+
+  it('previews a regular polygon loop from the center to the cursor vertex', () => {
+    const state: PolygonToolState = { tool: 'polygon', sides: 4, center: snap(0, 0), cursor: { x: 1, y: 0 } };
+    const preview = toolPreview(state, { x: 1, y: 0 });
+    expect(preview.segments).toHaveLength(4);
   });
 });

@@ -547,6 +547,45 @@ body {
   height: 15px;
 }
 
+/* Split button: a primary action plus a caret opening the variant menu. */
+.sketch-split-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.sketch-split-button__caret svg {
+  width: 12px;
+  height: 12px;
+}
+
+.sketch-split-button__menu-label {
+  flex: 1;
+}
+
+.sketch-split-button__menu-shortcut {
+  color: var(--shell-text-muted);
+  font-size: 11px;
+}
+
+/* Regular-polygon tool with its inline side-count control. */
+.sketch-polygon {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sketch-polygon__sides {
+  width: 44px;
+  padding: 3px 4px;
+  background: var(--shell-input, var(--shell-panel));
+  color: var(--shell-text);
+  border: 1px solid var(--shell-border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 /* Independent snap-settings popover. */
 .snap-settings {
   position: relative;
