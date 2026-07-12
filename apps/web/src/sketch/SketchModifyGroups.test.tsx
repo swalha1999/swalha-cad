@@ -48,6 +48,18 @@ describe('SketchModifyGroups', () => {
     expect(screen.getByRole('menuitemradio', { name: 'Extend' })).toHaveAttribute('aria-checked', 'true');
   });
 
+  it('exposes an accessible Fillet button with the F shortcut that toggles the tool', () => {
+    const store = renderGroups();
+    const fillet = screen.getByRole('button', { name: 'Fillet' });
+    expect(fillet).toHaveAttribute('aria-keyshortcuts', 'F');
+    expect(fillet).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(fillet);
+    expect(store.getState().sketch?.fillet).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Fillet' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Fillet' }));
+    expect(store.getState().sketch?.fillet).toBeNull();
+  });
+
   it('activates Trim and reflects aria-pressed, toggling off when clicked again', () => {
     const store = renderGroups();
     const trim = screen.getByRole('button', { name: 'Trim' });

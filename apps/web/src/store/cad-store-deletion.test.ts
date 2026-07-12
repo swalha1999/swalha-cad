@@ -206,7 +206,7 @@ describe('sketch-mode deletion', () => {
     // Enter sketch mode on the existing feature by creating a fresh session pointing at it.
     // enterSketch creates a new feature, so instead drive the session directly through the public API:
     store.setState({
-      sketch: { featureId: 'sk-1', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null },
+      sketch: { featureId: 'sk-1', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null, fillet: null },
     });
     return store;
   }

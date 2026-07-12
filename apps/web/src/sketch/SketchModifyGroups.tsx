@@ -1,4 +1,4 @@
-import { ArrowRightToLine, ChevronDown, Scissors, Split } from 'lucide-react';
+import { ArrowRightToLine, ChevronDown, Scissors, SquareRoundCorner, Split } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../components/ui/IconButton.js';
@@ -43,6 +43,7 @@ function iconNode(Icon: ComponentType): ReactNode {
 export function SketchModifyGroups() {
   const session = useCadStore((state) => state.sketch);
   const setSketchModifyTool = useCadStore((state) => state.setSketchModifyTool);
+  const startFillet = useCadStore((state) => state.startFillet);
   const [lastTool, setLastTool] = useState<ModifyTool>('trim');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +60,7 @@ export function SketchModifyGroups() {
   if (!session) return null;
 
   const activeTool = session.modify?.tool ?? null;
+  const filletActive = session.fillet != null;
   const primary = MODIFY_VARIANTS.find((variant) => variant.tool === lastTool) ?? MODIFY_VARIANTS[0]!;
 
   const select = (tool: ModifyTool): void => {
@@ -115,6 +117,15 @@ export function SketchModifyGroups() {
           </ul>
         )}
       </div>
+      <Tooltip content="Fillet (F) — Round a corner between two lines with a tangent arc">
+        <IconButton
+          aria-label="Fillet"
+          aria-pressed={filletActive}
+          aria-keyshortcuts="F"
+          icon={iconNode(SquareRoundCorner)}
+          onClick={() => startFillet()}
+        />
+      </Tooltip>
     </div>
   );
 }

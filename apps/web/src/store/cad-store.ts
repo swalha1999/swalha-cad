@@ -48,6 +48,14 @@ import { DEFAULT_POLYGON_SIDES } from '../sketch/tools/types.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
 import { applyModify } from '../sketch/modify/index.js';
 import type { ModifyTool } from '../sketch/modify/index.js';
+import {
+  applyFillet,
+  computeFillet,
+  lineMidpointPick,
+  pickFilletLine,
+  suggestFilletRadius,
+  type FilletPick,
+} from '../sketch/modify/fillet.js';
 
 export type CameraProjection = 'perspective' | 'orthographic';
 
@@ -97,6 +105,13 @@ export interface SketchSession {
    * edit still flows through the feature-command history. See {@link ModifyState}.
    */
   modify: ModifyState | null;
+  /**
+   * Non-null while the Fillet tool owns the sketch: it collects two lines and a
+   * radius, previews the tangent arc, and commits one `feature.update`. See
+   * {@link FilletState}. Purely transient interaction state — the arc/trim is not
+   * committed until the radius is entered.
+   */
+  fillet: FilletState | null;
 }
 
 /** The live state of an active Trim/Split/Extend modify tool: which tool, the cursor point driving its preview, and the last commit's report. */
@@ -106,6 +121,39 @@ export interface ModifyState {
   point: Vec2 | null;
   /** A human-readable note about the most recent commit (e.g. constraints removed by an Extend), announced for accessibility; `null` when there is nothing to report. */
   note: string | null;
+}
+
+/** A line the Fillet tool has picked, with the plane-local point that selects the retained side of the corner. */
+export interface FilletPickRef {
+  lineId: string;
+  point: Vec2;
+}
+
+/**
+ * The live state of the sketch Fillet tool. In `picking` it collects the two
+ * lines (with the hover point driving the second-line preview); in `awaiting` it
+ * holds the two picks, the current (editable) radius, and the suggested default,
+ * driving the inline radius editor and the tangent-arc preview. Nothing mutates
+ * until commit, so cancelling restores the exact prior geometry.
+ */
+export type FilletState =
+  | { phase: 'picking'; first: FilletPickRef | null; hover: Vec2 | null; note: string | null }
+  | { phase: 'awaiting'; a: FilletPickRef; b: FilletPickRef; radius: number; suggested: number; note: string | null };
+
+/** The result of committing a fillet radius, so the inline editor can apply-and-close or show why it was rejected. */
+export interface FilletOutcome {
+  applied: boolean;
+  reason: 'applied' | 'invalid' | 'not-ready';
+  message: string | null;
+}
+
+/** Converts a module-level `[x, y]` fillet pick to the store's `{x, y}` reference shape. */
+function toRef(pick: FilletPick): FilletPickRef {
+  return { lineId: pick.lineId, point: { x: pick.point[0], y: pick.point[1] } };
+}
+/** Converts a stored fillet pick reference back to the module's `[x, y]` shape. */
+function toPick(ref: FilletPickRef): FilletPick {
+  return { lineId: ref.lineId, point: [ref.point.x, ref.point.y] };
 }
 
 /**
@@ -280,6 +328,38 @@ export interface CadStoreState {
    * no valid edit. No-op unless a modify tool is active.
    */
   applySketchModify: (point: Vec2) => void;
+  /**
+   * Activates (or toggles off) the Fillet tool from the Modify group. With exactly
+   * two lines already selected it jumps straight to the inline radius editor
+   * (selection-first); otherwise it waits to pick two lines (command-first).
+   * Leaves any drawing/Distance/Modify tool. No-op outside sketch mode.
+   */
+  startFillet: () => void;
+  /** Updates the hover point that drives the Fillet tool's second-line preview while picking; no-op unless picking. */
+  filletHover: (point: Vec2 | null) => void;
+  /**
+   * Feeds a plane-local click to the Fillet tool: resolves the nearest line and
+   * records it as the first or second pick. Two distinct lines advance to the
+   * inline radius editor (seeded with a fitting suggested radius). No-op unless
+   * the tool is picking or no line is near the click.
+   */
+  filletPickLine: (point: Vec2) => void;
+  /** Updates the awaiting fillet's editable radius so the tangent-arc preview tracks the value being typed; no-op unless awaiting. */
+  setFilletRadius: (radius: number) => void;
+  /**
+   * Commits the awaiting fillet at the given radius as exactly one
+   * `feature.update` (creating the tangent arc, trimming/extending both lines,
+   * dropping the orphaned corner point, and remapping constraints). On success the
+   * tool stays active for the next fillet. Rejects (mutating nothing, leaving the
+   * editor open) an invalid/oversized radius or a degenerate corner.
+   */
+  commitFillet: (radius: number) => FilletOutcome;
+  /**
+   * Cancels the Fillet tool one layer at a time without mutating the document:
+   * an awaiting fillet returns to picking, a first pick is cleared, and an empty
+   * picking state exits the tool. No-op when the tool is inactive.
+   */
+  cancelFillet: () => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
   /** Sets one snap toggle to a specific value. */
@@ -726,6 +806,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           cursorSnap: null,
           dimension: null,
           modify: null,
+          fillet: null,
         },
         extrude: null,
         sketchSelection: [],
@@ -746,7 +827,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
       // Either way the Distance/Dimension and Modify tools no longer own the sketch.
       set({
-        sketch: { ...session, tool, toolState, dimension: null, modify: null },
+        sketch: { ...session, tool, toolState, dimension: null, modify: null, fillet: null },
         ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
     },
@@ -898,7 +979,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         ? { phase: 'awaiting', pointA: resolved.pointA, pointB: resolved.pointB, measured: resolved.measured }
         : { phase: 'picking', points: [] };
       set({
-        sketch: { ...session, tool: null, toolState: null, dimension, modify: null },
+        sketch: { ...session, tool: null, toolState: null, dimension, modify: null, fillet: null },
         sketchSelection: [],
         selectedConstraintId: null,
       });
@@ -1133,6 +1214,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           tool: null,
           toolState: null,
           dimension: null,
+          fillet: null,
           modify: next ? { tool: next, point: session.modify?.point ?? null, note: null } : null,
         },
         ...(next ? { sketchSelection: [], selectedConstraintId: null } : {}),
@@ -1178,6 +1260,120 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           state.selectedConstraintId && remainingConstraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,
         sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
       });
+    },
+
+    startFillet: () => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch) return;
+      // Pressing the tool again while active toggles it off, back to selection.
+      if (session.fillet) {
+        set({ sketch: { ...session, fillet: null } });
+        return;
+      }
+      // Selection-first: exactly two selected lines jump straight to the radius editor.
+      const selectedLines = state.sketchSelection.filter((id) =>
+        sketch.entities.some((entity) => entity.id === id && entity.kind === 'line'),
+      );
+      let fillet: FilletState = { phase: 'picking', first: null, hover: null, note: null };
+      if (state.sketchSelection.length === 2 && selectedLines.length === 2) {
+        const a = lineMidpointPick(sketch, selectedLines[0]!);
+        const b = lineMidpointPick(sketch, selectedLines[1]!);
+        if (a && b) {
+          const suggested = suggestFilletRadius(sketch, a, b);
+          fillet = { phase: 'awaiting', a: toRef(a), b: toRef(b), radius: suggested, suggested, note: null };
+        }
+      }
+      set({
+        sketch: { ...session, tool: null, toolState: null, dimension: null, modify: null, fillet },
+        sketchSelection: [],
+        selectedConstraintId: null,
+      });
+    },
+
+    filletHover: (point) => {
+      const session = get().sketch;
+      if (!session || session.fillet?.phase !== 'picking') return;
+      set({ sketch: { ...session, fillet: { ...session.fillet, hover: point } } });
+    },
+
+    filletPickLine: (point) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.fillet?.phase !== 'picking') return;
+      const pick = pickFilletLine(sketch, [point.x, point.y]);
+      if (!pick) return;
+      const first = session.fillet.first;
+      if (!first) {
+        set({ sketch: { ...session, fillet: { ...session.fillet, first: toRef(pick), note: null } } });
+        return;
+      }
+      if (first.lineId === pick.lineId) return; // same line: keep waiting for a second, distinct line
+      const suggested = suggestFilletRadius(sketch, toPick(first), pick);
+      set({
+        sketch: {
+          ...session,
+          fillet: { phase: 'awaiting', a: first, b: toRef(pick), radius: suggested, suggested, note: null },
+        },
+      });
+    },
+
+    setFilletRadius: (radius) => {
+      const session = get().sketch;
+      if (!session || session.fillet?.phase !== 'awaiting') return;
+      set({ sketch: { ...session, fillet: { ...session.fillet, radius } } });
+    },
+
+    commitFillet: (radius) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.fillet?.phase !== 'awaiting') {
+        return { applied: false, reason: 'not-ready', message: 'No fillet is awaiting a radius.' };
+      }
+      const computed = computeFillet(sketch, toPick(session.fillet.a), toPick(session.fillet.b), radius);
+      if (!computed.ok) {
+        return { applied: false, reason: 'invalid', message: computed.message };
+      }
+      const edit = applyFillet(sketch, computed.resolution, createId);
+      const candidate: SketchFeature = { ...sketch, entities: edit.entities, constraints: edit.constraints };
+      const nextHistory = applyCommandToHistory(state.history, {
+        type: 'feature.update',
+        id: sketch.id,
+        patch: { entities: edit.entities, constraints: edit.constraints },
+      });
+      const removed = edit.removedConstraintIds.length;
+      const note = removed > 0 ? `Removed ${removed} constraint${removed === 1 ? '' : 's'} invalidated by the fillet.` : null;
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        // The tool stays active for the next fillet (persistent tool), with any report announced.
+        sketch: { ...session, fillet: { phase: 'picking', first: null, hover: null, note } },
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
+      });
+      return { applied: true, reason: 'applied', message: note };
+    },
+
+    cancelFillet: () => {
+      const session = get().sketch;
+      if (!session || !session.fillet) return;
+      const fillet = session.fillet;
+      // Layered cancel: awaiting → picking; a first pick → cleared; empty picking → exit the tool.
+      if (fillet.phase === 'awaiting') {
+        set({ sketch: { ...session, fillet: { phase: 'picking', first: null, hover: null, note: null } } });
+        return;
+      }
+      if (fillet.first) {
+        set({ sketch: { ...session, fillet: { phase: 'picking', first: null, hover: fillet.hover, note: null } } });
+        return;
+      }
+      set({ sketch: { ...session, fillet: null } });
     },
 
     finishSketch: () => {

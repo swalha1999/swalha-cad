@@ -881,6 +881,41 @@ body {
   stroke-width: 3;
 }
 
+/* The previewed fillet tangent arc. */
+.sketch-overlay__fillet-arc {
+  stroke: var(--shell-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* The remnant each line keeps after the fillet (its trimmed/extended portion). */
+.sketch-overlay__fillet-trim {
+  stroke: var(--shell-accent);
+  stroke-width: 2;
+  stroke-opacity: 0.6;
+  stroke-dasharray: 6 4;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* The tangent points where the arc meets each line. */
+.sketch-overlay__fillet-tangent {
+  fill: var(--shell-accent);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+/* Diagnostic for an invalid fillet radius/corner while the editor is open. */
+.sketch-overlay__fillet-error {
+  fill: #e5484d;
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
 /* Only the invisible hit targets catch pointer events; the painted geometry and
    glyph badges stay click-through so selection is unambiguous. */
 .sketch-overlay__line,

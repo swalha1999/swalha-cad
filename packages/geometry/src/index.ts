@@ -74,6 +74,8 @@ export { centerRectangleCorners, circumcircle, regularPolygonVertices, threePoin
 // direction); each function returns null for degenerate input.
 export type { ArcDirection, ArcGeometry, SlotTangentPoints, StraightSlot } from './sketch/arc.js';
 export { arcEndpoints, centerPointArc, sampleArc, signedArcSweep, straightSlot, tangentArc, threePointArc } from './sketch/arc.js';
+export type { FilletLineInput, FilletResult, FilletRejection, FilletSolution, RetainedEndpoint } from './sketch/fillet.js';
+export { filletTwoLines, MIN_CORNER_ANGLE, MAX_CORNER_ANGLE } from './sketch/fillet.js';
 // Watertight profile extrusion: sweep a sketch's single detected closed
 // profile (one line loop or one circle) along its plane normal into an indexed
 // hard-shaded solid, triangulating caps deterministically and generating side

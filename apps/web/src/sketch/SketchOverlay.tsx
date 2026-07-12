@@ -1,6 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useRef } from 'react';
-import type { SketchEntity } from '@swalha-cad/document';
+import type { SketchEntity, SketchFeature } from '@swalha-cad/document';
 import type { ArcGeometry, SolveStatus } from '@swalha-cad/geometry';
 import { sampleArc } from '@swalha-cad/geometry';
 import { useCadStore } from '../store/cad-store-context.js';
@@ -13,6 +13,9 @@ import { toolPreview } from './preview.js';
 import type { PreviewGeometry } from './preview.js';
 import { modifyPreview } from './modify/index.js';
 import type { ModifyPreview } from './modify/index.js';
+import { filletPreview, pickFilletLine, suggestFilletRadius, type FilletComputation, type FilletPick } from './modify/fillet.js';
+import { FilletPrompt } from './FilletPrompt.js';
+import type { FilletPickRef, FilletState } from '../store/cad-store.js';
 import type { SnapKind, Vec2 } from './tools/types.js';
 import { useSketchInteraction } from './useSketchInteraction.js';
 import {
@@ -301,6 +304,71 @@ function ModifyOverlay({ preview, entities, cursor }: { preview: ModifyPreview; 
   );
 }
 
+/** Converts a store fillet pick reference to the module's `[x, y]` pick shape. */
+function toModulePick(ref: FilletPickRef): FilletPick {
+  return { lineId: ref.lineId, point: [ref.point.x, ref.point.y] };
+}
+
+/**
+ * Fillet preview: the previewed tangent arc, the trimmed remnant of each line back
+ * to its tangent point, and the two tangent points. Rendered while the tool is
+ * awaiting a radius, or while hovering a valid second line during picking. Purely a
+ * preview — nothing is committed until the radius is entered.
+ */
+function FilletOverlay({ computation }: { computation: Extract<FilletComputation, { ok: true }> }) {
+  const { preview } = computation;
+  const arcD = arcPathD(preview.arc);
+  const tA = planeToSvg(preview.tangentA[0], preview.tangentA[1]);
+  const tB = planeToSvg(preview.tangentB[0], preview.tangentB[1]);
+  const trim = (portion: readonly (readonly [number, number])[]) =>
+    portion.map(([x, y]) => planeToSvg(x, y)).map((p) => `${p.x},${p.y}`).join(' ');
+  return (
+    <g className="sketch-overlay__fillet" aria-hidden="true">
+      <polyline points={trim(preview.trimmedA)} fill="none" className="sketch-overlay__fillet-trim" />
+      <polyline points={trim(preview.trimmedB)} fill="none" className="sketch-overlay__fillet-trim" />
+      <path d={arcD} fill="none" className="sketch-overlay__fillet-arc" />
+      <circle cx={tA.x} cy={tA.y} r={3.5} className="sketch-overlay__fillet-tangent" />
+      <circle cx={tB.x} cy={tB.y} r={3.5} className="sketch-overlay__fillet-tangent" />
+    </g>
+  );
+}
+
+/** The derived render inputs for the Fillet tool: which lines to highlight, the previewable computation, the inline editor placement, and any diagnostic. */
+interface FilletView {
+  readonly highlightIds: readonly string[];
+  readonly computation: FilletComputation | null;
+  readonly editor: { readonly anchorX: number; readonly anchorY: number; readonly radius: number } | null;
+  readonly diagnostic: { readonly x: number; readonly y: number; readonly message: string } | null;
+}
+
+/** Resolves the Fillet tool's transient state into everything the overlay draws (pure; recomputed per render). */
+function resolveFilletView(sketch: SketchFeature, fillet: FilletState): FilletView {
+  const highlightIds: string[] = [];
+  let computation: FilletComputation | null = null;
+  let editor: FilletView['editor'] = null;
+  let diagnostic: FilletView['diagnostic'] = null;
+
+  if (fillet.phase === 'awaiting') {
+    highlightIds.push(fillet.a.lineId, fillet.b.lineId);
+    computation = filletPreview(sketch, toModulePick(fillet.a), toModulePick(fillet.b), fillet.radius);
+    // Anchor the editor at the midpoint of the two picks — stable while the radius is edited.
+    const anchor = planeToSvg((fillet.a.point.x + fillet.b.point.x) / 2, (fillet.a.point.y + fillet.b.point.y) / 2);
+    editor = { anchorX: anchor.x, anchorY: anchor.y, radius: fillet.radius };
+    if (!computation.ok) diagnostic = { x: anchor.x, y: anchor.y, message: computation.message };
+  } else {
+    if (fillet.first) highlightIds.push(fillet.first.lineId);
+    if (fillet.first && fillet.hover) {
+      const second = pickFilletLine(sketch, [fillet.hover.x, fillet.hover.y]);
+      if (second && second.lineId !== fillet.first.lineId) {
+        highlightIds.push(second.lineId);
+        const radius = suggestFilletRadius(sketch, toModulePick(fillet.first), second);
+        computation = filletPreview(sketch, toModulePick(fillet.first), second, radius);
+      }
+    }
+  }
+  return { highlightIds, computation, editor, diagnostic };
+}
+
 function SnapIndicator({ cursor, kind }: { cursor: Vec2; kind: SnapKind }) {
   const p = planeToSvg(cursor.x, cursor.y);
   return (
@@ -335,13 +403,15 @@ export function SketchOverlay() {
   const entities = sketch?.entities ?? [];
   const preview = toolPreview(session?.toolState ?? null, session?.cursor ?? null);
   const modify = session?.modify ?? null;
-  // Modify tools own clicks, so the per-entity selection hit targets must not intercept them.
-  const selectable = !session?.tool && !modify;
+  const fillet = session?.fillet ?? null;
+  // Modify and Fillet tools own clicks, so the per-entity selection hit targets must not intercept them.
+  const selectable = !session?.tool && !modify && !fillet;
   const modifyPoint = modify?.point ?? null;
   const modifyView: ModifyPreview | null =
     sketch && modify && modifyPoint ? modifyPreview(sketch, modify.tool, [modifyPoint.x, modifyPoint.y]) : null;
   const status = solve?.status ?? 'under-constrained';
   const selectionSet = new Set(selection);
+  const filletView = sketch && fillet ? resolveFilletView(sketch, fillet) : null;
   const dimension = session?.dimension ?? null;
   // While the Distance tool is picking geometry, entity clicks feed the dimension; otherwise they toggle selection.
   const onEntityClick = dimension?.phase === 'picking' ? dimensionPick : toggleSelection;
@@ -351,7 +421,7 @@ export function SketchOverlay() {
   return (
     <>
       <div className="visually-hidden" role="status" aria-live="polite">
-        {modify?.note ?? ''}
+        {modify?.note ?? fillet?.note ?? ''}
       </div>
       <svg
         ref={svgRef}
@@ -370,6 +440,31 @@ export function SketchOverlay() {
       {sketch ? <ConstraintGlyphs sketch={sketch} /> : null}
       <Preview preview={preview} />
       {modifyView && modifyPoint ? <ModifyOverlay preview={modifyView} entities={entities} cursor={modifyPoint} /> : null}
+      {filletView?.highlightIds.map((id) => (
+        <ModifyTargetHighlight key={`fillet-${id}`} entities={entities} targetId={id} />
+      ))}
+      {filletView?.computation?.ok ? <FilletOverlay computation={filletView.computation} /> : null}
+      {filletView?.diagnostic ? (
+        <text
+          x={filletView.diagnostic.x + 10}
+          y={filletView.diagnostic.y - 10}
+          className="sketch-overlay__fillet-error"
+          data-testid="fillet-error"
+        >
+          {filletView.diagnostic.message}
+        </text>
+      ) : null}
+      {filletView?.editor && fillet?.phase === 'awaiting' ? (
+        <foreignObject
+          x={filletView.editor.anchorX + 8}
+          y={filletView.editor.anchorY - 32}
+          width={148}
+          height={64}
+          className="sketch-overlay__fillet-editor"
+        >
+          <FilletPrompt radius={filletView.editor.radius} />
+        </foreignObject>
+      ) : null}
       {annotation && dimension?.phase === 'awaiting' ? <DimensionOverlay annotation={annotation} measured={dimension.measured} /> : null}
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
       </svg>

@@ -107,7 +107,7 @@ describe('handleGlobalDelete', () => {
       ],
     });
     store.setState({
-      sketch: { featureId: 'sk-1', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null },
+      sketch: { featureId: 'sk-1', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null, fillet: null },
     });
     store.getState().setSketchSelection(['p1']);
 
@@ -121,7 +121,7 @@ describe('handleGlobalDelete', () => {
   it('does not delete the part-studio selection while an empty sketch selection is active', () => {
     const store = createCadStore(docWithBox());
     store.setState({
-      sketch: { featureId: 'sk-x', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null },
+      sketch: { featureId: 'sk-x', plane: 'XY', tool: null, toolState: null, construction: false, polygonSides: 6, cursor: null, cursorSnap: null, dimension: null, modify: null, fillet: null },
     });
 
     const handled = handleGlobalDelete(store, keyEvent('Delete', document.body));

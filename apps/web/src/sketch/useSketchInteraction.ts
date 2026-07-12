@@ -118,6 +118,11 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       const state = storeApi.getState();
+      if (state.sketch?.fillet) {
+        // The Fillet tool keeps continuous coords and resolves its own nearest-line pick.
+        if (state.sketch.fillet.phase === 'picking') state.filletHover(rawAt(event.clientX, event.clientY));
+        return;
+      }
       if (state.sketch?.modify) {
         state.setModifyPoint(rawAt(event.clientX, event.clientY));
         return;
@@ -133,6 +138,14 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
       // Ignore the synthetic click that concludes a double-click sequence.
       if (event.detail > 1) return;
       const state = storeApi.getState();
+      // The Fillet tool owns clicks while picking: resolve the nearest line under the cursor.
+      if (state.sketch?.fillet) {
+        if (state.sketch.fillet.phase === 'picking') {
+          const point = rawAt(event.clientX, event.clientY);
+          if (point) state.filletPickLine(point);
+        }
+        return;
+      }
       // A Modify tool owns clicks: resolve the curve under the cursor and apply the edit.
       if (state.sketch?.modify) {
         const point = rawAt(event.clientX, event.clientY);
@@ -166,6 +179,11 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // A pending dimension owns Escape first (cancel without mutation); otherwise cancel the active tool step.
         if (state.sketch.dimension) {
           state.cancelDimension();
+          return;
+        }
+        // The Fillet tool cancels one layer at a time (awaiting → picking → cleared pick → tool exit).
+        if (state.sketch.fillet) {
+          state.cancelFillet();
           return;
         }
         // A Modify tool cancels its current preview first, then exits on a second Escape.
@@ -209,6 +227,10 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // Extend modify tool.
         event.preventDefault();
         state.setSketchModifyTool(state.sketch.modify?.tool === 'extend' ? null : 'extend');
+      } else if (key === 'f') {
+        // Fillet tool (from the Modify group): rounds a corner between two lines.
+        event.preventDefault();
+        state.startFillet();
       } else if (key === 'g') {
         event.preventDefault();
         state.setGridVisible(!state.gridVisible);
