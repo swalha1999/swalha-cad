@@ -29,7 +29,7 @@ function entityIndex(sketch: SketchFeature) {
   for (const entity of sketch.entities) {
     if (entity.kind === 'point') points.set(entity.id, entity);
     else if (entity.kind === 'line') lines.set(entity.id, entity);
-    else circles.set(entity.id, entity);
+    else if (entity.kind === 'circle') circles.set(entity.id, entity);
   }
   return { points, lines, circles };
 }

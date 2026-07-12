@@ -14,6 +14,10 @@ function circle(id: string, centerId: string, radius: number, construction = fal
   return { id, kind: 'circle', centerId, radius, construction };
 }
 
+function arc(id: string, centerId: string, construction = false): SketchEntity {
+  return { id, kind: 'arc', centerId, radius: 5, startAngle: 0, endAngle: Math.PI / 2, direction: 'ccw', construction };
+}
+
 function sketch(entities: SketchEntity[]): SketchFeature {
   return { id: 'sketch1', kind: 'sketch', name: 'Sketch 1', plane: 'XY', entities, constraints: [], visible: true };
 }
@@ -221,6 +225,30 @@ describe('detectSketchProfile: circle profile', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected failure');
     expect(result.issues.map((i) => i.kind)).toEqual(['disconnected']);
+  });
+});
+
+describe('detectSketchProfile: unsupported arc geometry', () => {
+  it('returns a structured unsupported-arc diagnostic for a standalone arc rather than misclassifying it', () => {
+    const result = detectSketchProfile(sketch([point('center', 0, 0), arc('a0', 'center')]));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.issues.map((i) => i.kind)).toEqual(['unsupported-arc']);
+    expect(result.issues[0]!.entityIds).toContain('a0');
+  });
+
+  it('flags an arc even when an otherwise-valid line loop is present (never silently omitted)', () => {
+    const result = detectSketchProfile(sketch([...ccwRectangle(), point('center', 2, 1), arc('a0', 'center')]));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.issues.map((i) => i.kind)).toEqual(['unsupported-arc']);
+  });
+
+  it('excludes construction arcs, so a construction arc does not block a valid profile', () => {
+    const result = detectSketchProfile(sketch([...ccwRectangle(), point('center', 2, 1, true), arc('a0', 'center', true)]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.profile.kind).toBe('line-loop');
   });
 });
 

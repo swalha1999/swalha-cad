@@ -67,6 +67,25 @@ describe('SketchOverlay', () => {
     expect(container.querySelectorAll('.sketch-overlay__circle')).toHaveLength(1);
   });
 
+  it('draws a committed arc and exposes it as a selectable hit target', () => {
+    const store = createCadStore();
+    store.getState().enterSketch('XY');
+    store.getState().setSketchTool('arc-3point');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(10, 0) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(-10, 0) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(0, 10) });
+    store.getState().setSketchTool(null);
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    expect(container.querySelectorAll('.sketch-overlay__arc:not(.sketch-overlay__hit)')).toHaveLength(1);
+    expect(container.querySelector('[data-entity-kind="arc"] .sketch-overlay__hit--arc')).not.toBeNull();
+  });
+
   it('styles construction geometry distinctly from normal geometry', () => {
     const store = createCadStore();
     store.getState().enterSketch('XY');

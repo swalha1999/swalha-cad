@@ -85,6 +85,23 @@ export function detectSketchProfile(sketch: SketchFeature): ProfileResult {
   const entities = sketch.entities.filter((entity) => !entity.construction);
   const lines = entities.filter((entity): entity is Extract<SketchEntity, { kind: 'line' }> => entity.kind === 'line');
   const circles = entities.filter((entity): entity is Extract<SketchEntity, { kind: 'circle' }> => entity.kind === 'circle');
+  const arcs = entities.filter((entity): entity is Extract<SketchEntity, { kind: 'arc' }> => entity.kind === 'arc');
+
+  // Regular (non-construction) arcs are first-class geometry but not yet
+  // extrusion-ready: surface an explicit structured diagnostic rather than
+  // misclassifying them as another kind or silently dropping them from a profile.
+  if (arcs.length > 0) {
+    return {
+      ok: false,
+      issues: [
+        issue(
+          'unsupported-arc',
+          'Sketch contains arc geometry; arc profiles are not yet supported for extrusion.',
+          arcs.map((arc) => arc.id),
+        ),
+      ],
+    };
+  }
 
   if (lines.length > 0) {
     if (circles.length > 0) {

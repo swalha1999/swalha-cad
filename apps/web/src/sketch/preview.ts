@@ -1,4 +1,14 @@
-import { centerRectangleCorners, circumcircle, regularPolygonVertices, threePointRectangleCorners } from '@swalha-cad/geometry';
+import {
+  centerPointArc,
+  centerRectangleCorners,
+  circumcircle,
+  regularPolygonVertices,
+  straightSlot,
+  tangentArc,
+  threePointArc,
+  threePointRectangleCorners,
+  type ArcGeometry,
+} from '@swalha-cad/geometry';
 import type { ToolState, Vec2 } from './tools/types.js';
 
 export interface PreviewSegment {
@@ -16,9 +26,20 @@ export interface PreviewGeometry {
   points: Vec2[];
   segments: PreviewSegment[];
   circles: PreviewCircle[];
+  /** In-progress arc previews (arc tools and slot caps); omitted when there are none. */
+  arcs?: ArcGeometry[];
 }
 
 const EMPTY: PreviewGeometry = { points: [], segments: [], circles: [] };
+
+/** Perpendicular half-width from a slot's centerline to `through`. */
+function slotHalfWidth(a: Vec2, b: Vec2, through: Vec2): number | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return null;
+  return Math.abs((dx / length) * (through.y - a.y) - (dy / length) * (through.x - a.x));
+}
 
 function rectangleSegments(a: Vec2, b: Vec2): PreviewSegment[] {
   const corners: Vec2[] = [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }];
@@ -101,6 +122,63 @@ export function toolPreview(state: ToolState | null, cursor: Vec2 | null): Previ
       const vertices = regularPolygonVertices([state.center.point.x, state.center.point.y], [cursor.x, cursor.y], state.sides);
       const segments = vertices ? loopSegments(vertices.map(([x, y]) => ({ x, y }))) : [];
       return { points: [state.center.point], segments, circles: [] };
+    }
+
+    case 'arc-center': {
+      if (!state.center) return EMPTY;
+      if (!state.start) {
+        const segments = cursor ? [{ a: state.center.point, b: cursor }] : [];
+        return { points: [state.center.point], segments, circles: [] };
+      }
+      if (!cursor) return { points: [state.center.point, state.start.point], segments: [], circles: [] };
+      const arc = centerPointArc(
+        [state.center.point.x, state.center.point.y],
+        [state.start.point.x, state.start.point.y],
+        [cursor.x, cursor.y],
+      );
+      return { points: [state.center.point, state.start.point], segments: [], circles: [], arcs: arc ? [arc] : [] };
+    }
+
+    case 'arc-3point': {
+      if (!state.start) return EMPTY;
+      if (!state.end) {
+        const segments = cursor ? [{ a: state.start.point, b: cursor }] : [];
+        return { points: [state.start.point], segments, circles: [] };
+      }
+      if (!cursor) return { points: [state.start.point, state.end.point], segments: [], circles: [] };
+      const arc = threePointArc(
+        [state.start.point.x, state.start.point.y],
+        [cursor.x, cursor.y],
+        [state.end.point.x, state.end.point.y],
+      );
+      return { points: [state.start.point, state.end.point], segments: [], circles: [], arcs: arc ? [arc] : [] };
+    }
+
+    case 'arc-tangent': {
+      if (!state.start || !cursor) return state.start ? { points: [state.start.point], segments: [], circles: [] } : EMPTY;
+      const arc = state.tangent
+        ? tangentArc([state.start.point.x, state.start.point.y], [state.tangent.x, state.tangent.y], [cursor.x, cursor.y])
+        : null;
+      const segments = arc ? [] : [{ a: state.start.point, b: cursor }];
+      return { points: [state.start.point], segments, circles: [], arcs: arc ? [arc] : [] };
+    }
+
+    case 'slot': {
+      if (!state.centerA) return EMPTY;
+      if (!state.centerB) {
+        const segments = cursor ? [{ a: state.centerA.point, b: cursor }] : [];
+        return { points: [state.centerA.point], segments, circles: [] };
+      }
+      if (!cursor) return { points: [state.centerA.point, state.centerB.point], segments: [], circles: [] };
+      const radius = slotHalfWidth(state.centerA.point, state.centerB.point, cursor);
+      const slot = radius === null ? null : straightSlot(
+        [state.centerA.point.x, state.centerA.point.y],
+        [state.centerB.point.x, state.centerB.point.y],
+        radius,
+      );
+      if (!slot) return { points: [state.centerA.point, state.centerB.point], segments: [], circles: [] };
+      const segments = slot.lines.map((line) => ({ a: { x: line.a[0], y: line.a[1] }, b: { x: line.b[0], y: line.b[1] } }));
+      return { points: [state.centerA.point, state.centerB.point], segments, circles: [], arcs: [...slot.arcs] };
     }
 
     default: {

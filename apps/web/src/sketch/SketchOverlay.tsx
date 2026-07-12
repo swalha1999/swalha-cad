@@ -1,7 +1,8 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useRef } from 'react';
 import type { SketchEntity } from '@swalha-cad/document';
-import type { SolveStatus } from '@swalha-cad/geometry';
+import type { ArcGeometry, SolveStatus } from '@swalha-cad/geometry';
+import { sampleArc } from '@swalha-cad/geometry';
 import { useCadStore } from '../store/cad-store-context.js';
 import { selectActiveSketch } from '../store/cad-store.js';
 import { ConstraintGlyphs } from './ConstraintGlyphs.js';
@@ -43,6 +44,19 @@ function pointMap(entities: readonly SketchEntity[]): Map<string, { x: number; y
     if (entity.kind === 'point') map.set(entity.id, { x: entity.x, y: entity.y });
   }
   return map;
+}
+
+/** How many line segments approximate one arc when drawing its SVG polyline. */
+const ARC_SAMPLES = 48;
+
+/** An SVG polyline `d` string tracing an arc, sampled deterministically in plane space. */
+function arcPathD(arc: ArcGeometry): string {
+  return sampleArc(arc, ARC_SAMPLES)
+    .map(([x, y], index) => {
+      const p = planeToSvg(x, y);
+      return `${index === 0 ? 'M' : 'L'}${p.x} ${p.y}`;
+    })
+    .join(' ');
 }
 
 function Grid() {
@@ -137,6 +151,23 @@ function Geometry({ entities, selection, status, selectable, onSelect }: Geometr
             </g>
           );
         }
+        if (entity.kind === 'arc') {
+          const c = points.get(entity.centerId);
+          if (!c) return null;
+          const d = arcPathD({
+            center: [c.x, c.y],
+            radius: entity.radius,
+            startAngle: entity.startAngle,
+            endAngle: entity.endAngle,
+            direction: entity.direction,
+          });
+          return (
+            <g key={entity.id} className="sketch-overlay__selectable" data-entity-id={entity.id} data-entity-kind="arc">
+              <path d={d} fill="none" className={`sketch-overlay__arc${construction}${selected}`} />
+              {selectable ? <path d={d} fill="none" className="sketch-overlay__hit sketch-overlay__hit--arc" {...hitProps(entity.id)} /> : null}
+            </g>
+          );
+        }
         const p = planeToSvg(entity.x, entity.y);
         return (
           <g key={entity.id} className="sketch-overlay__selectable" data-entity-id={entity.id} data-entity-kind="point">
@@ -163,6 +194,9 @@ function Preview({ preview }: { preview: PreviewGeometry }) {
           <circle key={`c${index}`} cx={center.x} cy={center.y} r={circle.radius * PIXELS_PER_UNIT} className="sketch-overlay__preview-circle" />
         );
       })}
+      {(preview.arcs ?? []).map((arc, index) => (
+        <path key={`a${index}`} d={arcPathD(arc)} fill="none" className="sketch-overlay__preview-arc" />
+      ))}
       {preview.points.map((point, index) => {
         const p = planeToSvg(point.x, point.y);
         return <circle key={`p${index}`} cx={p.x} cy={p.y} r={2.5} className="sketch-overlay__preview-point" />;

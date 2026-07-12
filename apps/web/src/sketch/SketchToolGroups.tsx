@@ -6,10 +6,14 @@ import {
   Hexagon,
   Minus,
   MoreHorizontal,
+  Pill,
+  Radius,
   Ruler,
+  Spline,
   Square,
   SquareDashed,
   SquareDot,
+  Waypoints,
 } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -157,6 +161,17 @@ const TOOL_FAMILIES: ToolFamily[] = [
       { kind: 'circle-3point', label: '3-point circle', icon: CircleDashed },
     ],
   },
+  {
+    id: 'arc',
+    label: 'Arc',
+    shortcut: 'A',
+    variants: [
+      { kind: 'arc-3point', label: '3-point arc', icon: Spline, shortcut: 'A' },
+      { kind: 'arc-center', label: 'Center point arc', icon: Radius },
+      { kind: 'arc-tangent', label: 'Tangent arc', icon: Waypoints },
+    ],
+  },
+  { id: 'slot', label: 'Slot', shortcut: 'S', variants: [{ kind: 'slot', label: 'Slot', icon: Pill, shortcut: 'S' }] },
 ];
 
 /** Renders an icon component as a node (lucide icons are components). */

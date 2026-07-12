@@ -31,6 +31,7 @@ import { applyConstructionToggle } from '../sketch/construction.js';
 import { removeSketchEntities } from '../sketch/delete.js';
 import type { NewConstraint } from '../sketch/constraint-actions.js';
 import { pickForDimension, resolveFromSelection } from '../sketch/dimension.js';
+import { lineTangentAtPoint } from '../sketch/tangent.js';
 import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
 import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
@@ -697,6 +698,23 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
 
       const result = advanceTool(session.toolState, event);
 
+      // Tangent arc continuity: when the first click lands on an existing point,
+      // seed the tool's tangent from a line incident to that point so the arc
+      // continues smoothly from it. Kept out of the pure reducer (which cannot
+      // see committed geometry) but flowing through the same state update.
+      let nextToolState = result.state;
+      if (
+        nextToolState.tool === 'arc-tangent' &&
+        nextToolState.start &&
+        nextToolState.tangent === null &&
+        event.type === 'click' &&
+        event.snap.ref.kind === 'existing'
+      ) {
+        const activeSketch = selectActiveSketch(state);
+        const tangent = activeSketch ? lineTangentAtPoint(activeSketch, event.snap.ref.id) : null;
+        if (tangent) nextToolState = { ...nextToolState, tangent };
+      }
+
       let history = state.history;
       let document = state.document;
       let committed = false;
@@ -720,7 +738,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           ...session,
           ...cursorPatch,
           tool: result.exitTool ? null : session.tool,
-          toolState: result.exitTool ? null : result.state,
+          toolState: result.exitTool ? null : nextToolState,
         },
         ...(committedSketch ? { sketchSolve: computeSketchSolve(committedSketch) } : {}),
       });

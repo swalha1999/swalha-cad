@@ -27,10 +27,26 @@ export interface CadDocumentV1 {
 
 export type SketchPlane = 'XY' | 'XZ' | 'YZ';
 
+/** Sweep direction of an arc from its start angle to its end angle: counter-clockwise or clockwise. */
+export type ArcDirection = 'ccw' | 'cw';
+
 export type SketchEntity =
   | { id: string; kind: 'point'; x: number; y: number; construction: boolean }
   | { id: string; kind: 'line'; startId: string; endId: string; construction: boolean }
-  | { id: string; kind: 'circle'; centerId: string; radius: number; construction: boolean };
+  | { id: string; kind: 'circle'; centerId: string; radius: number; construction: boolean }
+  | {
+      id: string;
+      kind: 'arc';
+      /** Point entity at the arc's center; endpoints are derived from the center, radius, and angles. */
+      centerId: string;
+      radius: number;
+      /** Plane-local angle (radians) of the start endpoint, measured from the center. */
+      startAngle: number;
+      /** Plane-local angle (radians) of the end endpoint, measured from the center. */
+      endAngle: number;
+      direction: ArcDirection;
+      construction: boolean;
+    };
 
 export type SketchConstraint =
   | { id: string; kind: 'coincident'; pointA: string; pointB: string }

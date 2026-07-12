@@ -19,7 +19,7 @@ export function indexSketchEntities(entities: readonly SketchEntity[]): SketchEn
   for (const entity of entities) {
     if (entity.kind === 'point') points.set(entity.id, entity);
     else if (entity.kind === 'line') lines.set(entity.id, entity);
-    else circles.set(entity.id, entity);
+    else if (entity.kind === 'circle') circles.set(entity.id, entity);
   }
   return { points, lines, circles };
 }
@@ -31,7 +31,9 @@ export type TopologyIssueKind =
   | 'branch'
   | 'open-chain'
   | 'disconnected'
-  | 'self-intersection';
+  | 'self-intersection'
+  /** A non-construction arc is present but arc profiles are not yet supported by extrusion. */
+  | 'unsupported-arc';
 
 /** A structured diagnostic describing why a sketch's topology could not be resolved into a profile. */
 export interface TopologyIssue {

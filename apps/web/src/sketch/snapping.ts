@@ -28,6 +28,11 @@ export interface SnapContext {
   points: readonly SnapPoint[];
   lines: readonly SnapLine[];
   centers: readonly SnapCircleCenter[];
+  /**
+   * Derived vertices (e.g. arc endpoints) that are not point entities: they snap
+   * as endpoints but materialise a fresh coincident point when committed.
+   */
+  endpoints?: readonly { x: number; y: number }[];
 }
 
 export interface SnapConfig {
@@ -117,6 +122,13 @@ function strongCandidates(raw: Vec2, context: SnapContext, settings: SnapSetting
       const distance = distanceTo(raw, point.x, point.y);
       if (within(distance)) {
         candidates.push({ point: { x: point.x, y: point.y }, ref: { kind: 'existing', id: point.id }, kind: 'endpoint', distance, rank: STRONG_RANK.endpoint! });
+      }
+    }
+    // Derived vertices (arc endpoints) snap as endpoints but create a fresh point.
+    for (const endpoint of context.endpoints ?? []) {
+      const distance = distanceTo(raw, endpoint.x, endpoint.y);
+      if (within(distance)) {
+        candidates.push({ point: { x: endpoint.x, y: endpoint.y }, ref: newRef(endpoint.x, endpoint.y), kind: 'endpoint', distance, rank: STRONG_RANK.endpoint! });
       }
     }
   }

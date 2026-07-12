@@ -20,7 +20,7 @@ describe('SketchToolGroups', () => {
     renderGroups();
     const group = screen.getByRole('group', { name: 'Create' });
     expect(group).toBeInTheDocument();
-    for (const name of ['Point', 'Line', 'Rectangle', 'Circle', 'Polygon', 'Construction']) {
+    for (const name of ['Point', 'Line', 'Rectangle', 'Circle', 'Arc', 'Slot', 'Polygon', 'Construction']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
   });
@@ -83,6 +83,40 @@ describe('SketchToolGroups', () => {
       expect(screen.getByRole('menuitemradio', { name: 'Center circle' })).toBeInTheDocument();
       fireEvent.click(screen.getByRole('menuitemradio', { name: '3-point circle' }));
       expect(store.getState().sketch?.tool).toBe('circle-3point');
+    });
+  });
+
+  describe('arc split button', () => {
+    it('exposes the 3-point / center / tangent arc variants with the family shortcut', () => {
+      renderGroups();
+      expect(screen.getByRole('button', { name: 'Arc' })).toHaveAttribute('aria-keyshortcuts', 'A');
+      fireEvent.click(screen.getByRole('button', { name: 'Arc variants' }));
+      expect(screen.getByRole('menuitemradio', { name: '3-point arc' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitemradio', { name: 'Center point arc' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitemradio', { name: 'Tangent arc' })).toBeInTheDocument();
+    });
+
+    it('activates a chosen arc variant through the store', () => {
+      const store = renderGroups();
+      fireEvent.click(screen.getByRole('button', { name: 'Arc variants' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Tangent arc' }));
+      expect(store.getState().sketch?.tool).toBe('arc-tangent');
+    });
+
+    it('primary button activates the last-used arc variant (defaulting to 3-point)', () => {
+      const store = renderGroups();
+      fireEvent.click(screen.getByRole('button', { name: 'Arc' }));
+      expect(store.getState().sketch?.tool).toBe('arc-3point');
+    });
+  });
+
+  describe('slot', () => {
+    it('activates the slot tool with its S shortcut advertised', () => {
+      const store = renderGroups();
+      const slot = screen.getByRole('button', { name: 'Slot' });
+      expect(slot).toHaveAttribute('aria-keyshortcuts', 'S');
+      fireEvent.click(slot);
+      expect(store.getState().sketch?.tool).toBe('slot');
     });
   });
 

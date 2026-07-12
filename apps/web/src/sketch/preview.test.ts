@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { toolPreview } from './preview.js';
 import type {
+  Arc3PointToolState,
+  ArcCenterToolState,
+  ArcTangentToolState,
   Circle3PointToolState,
   CircleToolState,
   LineToolState,
@@ -8,6 +11,7 @@ import type {
   Rectangle3PointToolState,
   RectangleCenterToolState,
   RectangleToolState,
+  SlotToolState,
   SnapResult,
 } from './tools/types.js';
 
@@ -94,5 +98,35 @@ describe('toolPreview', () => {
     const state: PolygonToolState = { tool: 'polygon', sides: 4, center: snap(0, 0), cursor: { x: 1, y: 0 } };
     const preview = toolPreview(state, { x: 1, y: 0 });
     expect(preview.segments).toHaveLength(4);
+  });
+
+  it('previews a center-point arc once the start ray is placed', () => {
+    const state: ArcCenterToolState = { tool: 'arc-center', center: snap(0, 0), start: snap(2, 0), cursor: { x: 0, y: 3 } };
+    const preview = toolPreview(state, { x: 0, y: 3 });
+    expect(preview.arcs).toHaveLength(1);
+    expect(preview.arcs![0]!.radius).toBeCloseTo(2, 9);
+  });
+
+  it('previews a three-point arc through both endpoints and the cursor', () => {
+    const state: Arc3PointToolState = { tool: 'arc-3point', start: snap(1, 0), end: snap(-1, 0), cursor: { x: 0, y: 1 } };
+    const preview = toolPreview(state, { x: 0, y: 1 });
+    expect(preview.arcs).toHaveLength(1);
+    expect(preview.arcs![0]!.radius).toBeCloseTo(1, 9);
+  });
+
+  it('previews a tangent arc when a tangent is seeded, and a rubber line otherwise', () => {
+    const seeded: ArcTangentToolState = { tool: 'arc-tangent', start: snap(0, 0), tangent: { x: 1, y: 0 }, cursor: { x: 0, y: 2 } };
+    expect(toolPreview(seeded, { x: 0, y: 2 }).arcs).toHaveLength(1);
+    const unseeded: ArcTangentToolState = { tool: 'arc-tangent', start: snap(0, 0), tangent: null, cursor: { x: 0, y: 2 } };
+    const preview = toolPreview(unseeded, { x: 0, y: 2 });
+    expect(preview.arcs ?? []).toHaveLength(0);
+    expect(preview.segments).toHaveLength(1);
+  });
+
+  it('previews a slot as two side lines plus two cap arcs', () => {
+    const state: SlotToolState = { tool: 'slot', centerA: snap(0, 0), centerB: snap(10, 0), cursor: { x: 5, y: 2 } };
+    const preview = toolPreview(state, { x: 5, y: 2 });
+    expect(preview.segments).toHaveLength(2);
+    expect(preview.arcs).toHaveLength(2);
   });
 });

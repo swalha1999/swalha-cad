@@ -64,6 +64,34 @@ describe('buildSketchUpdateCommand', () => {
     expect(line).toMatchObject({ startId: 'p0' });
   });
 
+  it('materialises an arc referencing its resolved center point id', () => {
+    const document = documentWithSketch([{ id: 'p0', kind: 'point', x: 0, y: 0, construction: false }]);
+    const commit: SketchCommit = {
+      points: [{ kind: 'existing', id: 'p0' }],
+      lines: [],
+      circles: [],
+      arcs: [{ center: 0, radius: 5, startAngle: 0, endAngle: Math.PI / 2, direction: 'ccw' }],
+    };
+
+    const command = buildSketchUpdateCommand(document, 'sketch-1', commit, counterIds(), false);
+    const entities = command?.type === 'feature.update' ? (command.patch as { entities: SketchFeature['entities'] }).entities : [];
+    const arc = entities.find((entity) => entity.kind === 'arc');
+    expect(arc).toMatchObject({ kind: 'arc', centerId: 'p0', radius: 5, startAngle: 0, direction: 'ccw', construction: false });
+  });
+
+  it('tags a committed arc as construction when requested', () => {
+    const command = buildSketchUpdateCommand(
+      documentWithSketch(),
+      'sketch-1',
+      { points: [{ kind: 'new', x: 1, y: 1 }], lines: [], circles: [], arcs: [{ center: 0, radius: 3, startAngle: 0, endAngle: 1, direction: 'cw' }] },
+      counterIds(),
+      true,
+    );
+    const entities = command?.type === 'feature.update' ? (command.patch as { entities: SketchFeature['entities'] }).entities : [];
+    expect(entities.every((entity) => entity.construction)).toBe(true);
+    expect(entities.some((entity) => entity.kind === 'arc')).toBe(true);
+  });
+
   it('tags created geometry as construction when requested', () => {
     const command = buildSketchUpdateCommand(
       documentWithSketch(),

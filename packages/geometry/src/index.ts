@@ -67,6 +67,12 @@ export { detectSketchProfile } from './sketch/profile.js';
 // it without mutating the document.
 export type { RectangleCorners, Circle } from './sketch/shapes.js';
 export { centerRectangleCorners, circumcircle, regularPolygonVertices, threePointRectangleCorners } from './sketch/shapes.js';
+// Pure plane-local arc/slot math for the Onshape-style arc creation tools:
+// 3-point, center-point, and tangent-continuation arcs plus straight slots.
+// Arcs are described exactly as the document stores them (center/radius/angles/
+// direction); each function returns null for degenerate input.
+export type { ArcDirection, ArcGeometry, SlotTangentPoints, StraightSlot } from './sketch/arc.js';
+export { arcEndpoints, centerPointArc, sampleArc, straightSlot, tangentArc, threePointArc } from './sketch/arc.js';
 // Watertight profile extrusion: sweep a sketch's single detected closed
 // profile (one line loop or one circle) along its plane normal into an indexed
 // hard-shaded solid, triangulating caps deterministically and generating side

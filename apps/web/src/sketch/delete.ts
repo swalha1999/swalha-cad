@@ -16,10 +16,10 @@ function constraintRefs(constraint: SketchConstraint): string[] {
   }
 }
 
-/** Every entity id an entity depends on (a line on its endpoints, a circle on its center). */
+/** Every entity id an entity depends on (a line on its endpoints, a circle/arc on its center). */
 function entityRefs(entity: SketchEntity): string[] {
   if (entity.kind === 'line') return [entity.startId, entity.endId];
-  if (entity.kind === 'circle') return [entity.centerId];
+  if (entity.kind === 'circle' || entity.kind === 'arc') return [entity.centerId];
   return [];
 }
 

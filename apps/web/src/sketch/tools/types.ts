@@ -55,17 +55,39 @@ export type SketchToolKind =
   | 'rectangle-3point'
   | 'circle'
   | 'circle-3point'
-  | 'polygon';
+  | 'polygon'
+  | 'arc-center'
+  | 'arc-3point'
+  | 'arc-tangent'
+  | 'slot';
+
+/** Sweep direction of a committed arc, matching the document `arc` entity. */
+export type ArcDirection = 'ccw' | 'cw';
 
 /**
- * A plane-local description of geometry to append to the active sketch. `lines`
- * and `circles` reference `points` by index; the store dedupes new points that
- * coincide with existing ones and drops zero-length lines.
+ * A plane-local arc to append: its center is `points[center]` (an index into the
+ * commit's points); the endpoints are derived from the radius, angles, and sweep
+ * direction, so no endpoint points are created.
+ */
+export interface SketchCommitArc {
+  center: number;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  direction: ArcDirection;
+}
+
+/**
+ * A plane-local description of geometry to append to the active sketch. `lines`,
+ * `circles`, and `arcs` reference `points` by index; the store dedupes new points
+ * that coincide with existing ones and drops zero-length lines. `arcs` is omitted
+ * by tools that never create arcs.
  */
 export interface SketchCommit {
   points: PointRef[];
   lines: { start: number; end: number }[];
   circles: { center: number; radius: number }[];
+  arcs?: SketchCommitArc[];
 }
 
 /** Input events for every tool reducer. `finish` is Enter/double-click; `cancel` is Escape. */
@@ -129,6 +151,43 @@ export interface PolygonToolState {
   cursor: Vec2 | null;
 }
 
+/** Center-point arc: first click sets the center, second the radius/start ray, third the sweep. */
+export interface ArcCenterToolState {
+  tool: 'arc-center';
+  center: SnapResult | null;
+  start: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+/** Three-point arc: first two clicks set the endpoints, the third a point the arc passes through. */
+export interface Arc3PointToolState {
+  tool: 'arc-3point';
+  start: SnapResult | null;
+  end: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
+/**
+ * Tangent arc: continues from a start point (typically a line endpoint) along a
+ * seeded `tangent` direction to a second clicked endpoint. The store injects
+ * `tangent` from the sketch geometry at the start point; without it the tool
+ * cannot build an arc.
+ */
+export interface ArcTangentToolState {
+  tool: 'arc-tangent';
+  start: SnapResult | null;
+  tangent: Vec2 | null;
+  cursor: Vec2 | null;
+}
+
+/** Straight slot: first two clicks set the cap centers, the third sets the width (radius). */
+export interface SlotToolState {
+  tool: 'slot';
+  centerA: SnapResult | null;
+  centerB: SnapResult | null;
+  cursor: Vec2 | null;
+}
+
 export type ToolState =
   | PointToolState
   | LineToolState
@@ -137,7 +196,11 @@ export type ToolState =
   | Rectangle3PointToolState
   | CircleToolState
   | Circle3PointToolState
-  | PolygonToolState;
+  | PolygonToolState
+  | ArcCenterToolState
+  | Arc3PointToolState
+  | ArcTangentToolState
+  | SlotToolState;
 
 /** The default number of sides a freshly activated polygon tool starts with. */
 export const DEFAULT_POLYGON_SIDES = 6;

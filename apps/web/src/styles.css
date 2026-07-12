@@ -759,7 +759,8 @@ body {
   stroke-linecap: round;
 }
 
-.sketch-overlay__circle {
+.sketch-overlay__circle,
+.sketch-overlay__arc {
   fill: none;
   stroke: var(--shell-accent-strong);
   stroke-width: 2;
@@ -787,7 +788,8 @@ body {
   opacity: 0.8;
 }
 
-.sketch-overlay__preview-circle {
+.sketch-overlay__preview-circle,
+.sketch-overlay__preview-arc {
   fill: none;
   stroke: var(--shell-accent);
   stroke-width: 1.5;
@@ -833,6 +835,7 @@ body {
    glyph badges stay click-through so selection is unambiguous. */
 .sketch-overlay__line,
 .sketch-overlay__circle,
+.sketch-overlay__arc,
 .sketch-overlay__point,
 .sketch-overlay__glyphs {
   pointer-events: none;
@@ -841,21 +844,24 @@ body {
 /* Solve-status colour convention: under-constrained blue, fully constrained
    dark, conflicting red. Construction geometry keeps its own reference styling. */
 .sketch-overlay__geometry--under-constrained .sketch-overlay__line:not(.sketch-overlay__edge--construction),
-.sketch-overlay__geometry--under-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+.sketch-overlay__geometry--under-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--under-constrained .sketch-overlay__arc:not(.sketch-overlay__edge--construction) {
   stroke: var(--primary);
 }
 .sketch-overlay__geometry--under-constrained .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
   fill: var(--primary);
 }
 .sketch-overlay__geometry--fully-constrained .sketch-overlay__line:not(.sketch-overlay__edge--construction),
-.sketch-overlay__geometry--fully-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+.sketch-overlay__geometry--fully-constrained .sketch-overlay__circle:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--fully-constrained .sketch-overlay__arc:not(.sketch-overlay__edge--construction) {
   stroke: oklch(0.2 0 0);
 }
 .sketch-overlay__geometry--fully-constrained .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
   fill: oklch(0.2 0 0);
 }
 .sketch-overlay__geometry--conflicting .sketch-overlay__line:not(.sketch-overlay__edge--construction),
-.sketch-overlay__geometry--conflicting .sketch-overlay__circle:not(.sketch-overlay__edge--construction) {
+.sketch-overlay__geometry--conflicting .sketch-overlay__circle:not(.sketch-overlay__edge--construction),
+.sketch-overlay__geometry--conflicting .sketch-overlay__arc:not(.sketch-overlay__edge--construction) {
   stroke: var(--destructive);
 }
 .sketch-overlay__geometry--conflicting .sketch-overlay__point:not(.sketch-overlay__edge--construction) {
@@ -864,7 +870,8 @@ body {
 
 /* Selection highlight sits above the status colour. */
 .sketch-overlay__line.sketch-overlay__selected,
-.sketch-overlay__circle.sketch-overlay__selected {
+.sketch-overlay__circle.sketch-overlay__selected,
+.sketch-overlay__arc.sketch-overlay__selected {
   stroke: #f5a623;
   stroke-width: 3;
 }
@@ -885,7 +892,8 @@ body {
   stroke: none;
   pointer-events: all;
 }
-.sketch-overlay__hit--circle {
+.sketch-overlay__hit--circle,
+.sketch-overlay__hit--arc {
   fill: none;
   pointer-events: stroke;
 }

@@ -40,6 +40,17 @@ describe('resolveSnap — grid target', () => {
   });
 });
 
+describe('resolveSnap — arc endpoint target', () => {
+  it('snaps onto a derived arc endpoint as an endpoint, materialising a fresh point', () => {
+    const context: SnapContext = { points: [], lines: [], centers: [], endpoints: [{ x: 5, y: 0 }] };
+    const snap = resolveSnap({ x: 5.5, y: 0.2 }, context, settings(), CONFIG, false);
+    expect(snap.kind).toBe('endpoint');
+    expect(snap.point).toEqual({ x: 5, y: 0 });
+    // Not an existing point entity: it becomes a new coincident point on commit.
+    expect(snap.ref).toEqual({ kind: 'new', x: 5, y: 0 });
+  });
+});
+
 describe('resolveSnap — endpoint target', () => {
   it('snaps onto an existing point within the snap distance', () => {
     const context: SnapContext = { points: [{ id: 'p1', x: 20, y: 0 }], lines: [], centers: [] };

@@ -1,6 +1,7 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import { useCallback, useEffect } from 'react';
 import type { SketchEntity } from '@swalha-cad/document';
+import { arcEndpoints } from '@swalha-cad/geometry';
 import { useCadStoreApi } from '../store/cad-store-context.js';
 import { selectActiveSketch } from '../store/cad-store.js';
 import type { SnapContext, SnapCircleCenter, SnapLine, SnapPoint } from './snapping.js';
@@ -14,6 +15,8 @@ const TOOL_SHORTCUTS: Record<string, SketchToolKind> = {
   l: 'line',
   r: 'rectangle',
   c: 'circle',
+  a: 'arc-3point',
+  s: 'slot',
 };
 
 /**
@@ -47,6 +50,7 @@ function buildSnapContext(entities: readonly SketchEntity[]): SnapContext {
   }
   const lines: SnapLine[] = [];
   const centers: SnapCircleCenter[] = [];
+  const endpoints: { x: number; y: number }[] = [];
   for (const entity of entities) {
     if (entity.kind === 'line') {
       const a = coords.get(entity.startId);
@@ -55,9 +59,22 @@ function buildSnapContext(entities: readonly SketchEntity[]): SnapContext {
     } else if (entity.kind === 'circle') {
       const c = coords.get(entity.centerId);
       if (c) centers.push({ id: entity.centerId, x: c.x, y: c.y });
+    } else if (entity.kind === 'arc') {
+      const c = coords.get(entity.centerId);
+      if (c) {
+        centers.push({ id: entity.centerId, x: c.x, y: c.y });
+        const { start, end } = arcEndpoints({
+          center: [c.x, c.y],
+          radius: entity.radius,
+          startAngle: entity.startAngle,
+          endAngle: entity.endAngle,
+          direction: entity.direction,
+        });
+        endpoints.push({ x: start[0], y: start[1] }, { x: end[0], y: end[1] });
+      }
     }
   }
-  return { points, lines, centers };
+  return { points, lines, centers, endpoints };
 }
 
 /**

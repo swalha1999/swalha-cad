@@ -92,10 +92,24 @@ const circleEntitySchema = z
   })
   .strict();
 
+const arcEntitySchema = z
+  .object({
+    id: z.string(),
+    kind: z.literal('arc'),
+    centerId: z.string(),
+    radius: positiveFinite,
+    startAngle: z.number().finite(),
+    endAngle: z.number().finite(),
+    direction: z.enum(['ccw', 'cw']),
+    construction: z.boolean(),
+  })
+  .strict();
+
 export const sketchEntitySchema = z.discriminatedUnion('kind', [
   pointEntitySchema,
   lineEntitySchema,
   circleEntitySchema,
+  arcEntitySchema,
 ]);
 
 const coincidentConstraintSchema = z
@@ -176,6 +190,7 @@ function validateSketchReferences(sketch: SketchFeatureShape, ctx: z.RefinementC
   const pointIds = new Set<string>();
   const lineIds = new Set<string>();
   const circleIds = new Set<string>();
+  const arcIds = new Set<string>();
 
   sketch.entities.forEach((entity, index) => {
     if (seenEntityIds.has(entity.id)) {
@@ -189,6 +204,7 @@ function validateSketchReferences(sketch: SketchFeatureShape, ctx: z.RefinementC
     if (entity.kind === 'point') pointIds.add(entity.id);
     if (entity.kind === 'line') lineIds.add(entity.id);
     if (entity.kind === 'circle') circleIds.add(entity.id);
+    if (entity.kind === 'arc') arcIds.add(entity.id);
   });
 
   sketch.entities.forEach((entity, index) => {
@@ -221,6 +237,22 @@ function validateSketchReferences(sketch: SketchFeatureShape, ctx: z.RefinementC
         message: `Circle references unknown center point: ${entity.centerId}`,
         path: [...path, 'entities', index, 'centerId'],
       });
+    }
+    if (entity.kind === 'arc') {
+      if (!pointIds.has(entity.centerId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Arc references unknown center point: ${entity.centerId}`,
+          path: [...path, 'entities', index, 'centerId'],
+        });
+      }
+      if (entity.startAngle === entity.endAngle) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Arc startAngle and endAngle must differ (zero angular sweep)',
+          path: [...path, 'entities', index, 'endAngle'],
+        });
+      }
     }
   });
 

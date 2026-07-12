@@ -62,6 +62,21 @@ export function buildSketchUpdateCommand(
     created.push({ id: createId(), kind: 'circle', centerId, radius: circle.radius, construction });
   }
 
+  for (const arc of commit.arcs ?? []) {
+    const centerId = pointIds[arc.center];
+    if (centerId === undefined) continue;
+    created.push({
+      id: createId(),
+      kind: 'arc',
+      centerId,
+      radius: arc.radius,
+      startAngle: arc.startAngle,
+      endAngle: arc.endAngle,
+      direction: arc.direction,
+      construction,
+    });
+  }
+
   if (created.length === 0) return null;
 
   return { type: 'feature.update', id: featureId, patch: { entities: [...existing, ...created] } };

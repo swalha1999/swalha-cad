@@ -60,6 +60,22 @@ function circleSketch(overrides: Partial<SketchFeature> = {}): SketchFeature {
   };
 }
 
+function arcSketch(overrides: Partial<SketchFeature> = {}): SketchFeature {
+  return {
+    id: 'sketch-arc',
+    kind: 'sketch',
+    name: 'Sketch Arc',
+    plane: 'XY',
+    entities: [
+      { id: 'ac', kind: 'point', x: 0, y: 0, construction: false },
+      { id: 'arc1', kind: 'arc', centerId: 'ac', radius: 5, startAngle: 0, endAngle: Math.PI / 2, direction: 'ccw', construction: false },
+    ],
+    constraints: [],
+    visible: true,
+    ...overrides,
+  };
+}
+
 function extrudeOf(sketchId: string, overrides: Partial<ExtrudeFeature> = {}): ExtrudeFeature {
   return {
     id: 'extrude-1',
@@ -166,6 +182,67 @@ describe('parseCadDocument — V2 documents', () => {
     const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [circleSketch()] };
 
     expect(parseCadDocument(doc).success).toBe(true);
+  });
+
+  it('accepts a document with a valid arc entity', () => {
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [arcSketch()] };
+
+    expect(parseCadDocument(doc).success).toBe(true);
+  });
+
+  it('rejects an arc referencing a non-existent center point', () => {
+    const sketch = arcSketch({
+      entities: [{ id: 'arc1', kind: 'arc', centerId: 'missing', radius: 5, startAngle: 0, endAngle: 1, direction: 'ccw', construction: false }],
+    });
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [sketch] };
+
+    expect(parseCadDocument(doc).success).toBe(false);
+  });
+
+  it('rejects an arc with zero angular sweep (startAngle equal to endAngle)', () => {
+    const sketch = arcSketch({
+      entities: [
+        { id: 'ac', kind: 'point', x: 0, y: 0, construction: false },
+        { id: 'arc1', kind: 'arc', centerId: 'ac', radius: 5, startAngle: 1, endAngle: 1, direction: 'ccw', construction: false },
+      ],
+    });
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [sketch] };
+
+    expect(parseCadDocument(doc).success).toBe(false);
+  });
+
+  it.each([0, -5, Number.POSITIVE_INFINITY, Number.NaN])('rejects an arc entity radius of %s', (radius) => {
+    const sketch = arcSketch({
+      entities: [
+        { id: 'ac', kind: 'point', x: 0, y: 0, construction: false },
+        { id: 'arc1', kind: 'arc', centerId: 'ac', radius, startAngle: 0, endAngle: 1, direction: 'ccw', construction: false },
+      ],
+    });
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [sketch] };
+
+    expect(parseCadDocument(doc).success).toBe(false);
+  });
+
+  it('rejects an arc with an invalid direction', () => {
+    const sketch = arcSketch({
+      entities: [
+        { id: 'ac', kind: 'point', x: 0, y: 0, construction: false },
+        { id: 'arc1', kind: 'arc', centerId: 'ac', radius: 5, startAngle: 0, endAngle: 1, direction: 'spin', construction: false } as never,
+      ],
+    });
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [sketch] };
+
+    expect(parseCadDocument(doc).success).toBe(false);
+  });
+
+  it('round-trips a V2 document containing an arc through JSON without data loss', () => {
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [arcSketch()] };
+    const result = parseCadDocument(doc);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const roundTripped = JSON.parse(JSON.stringify(result.data));
+    expect(roundTripped).toEqual(doc);
+    expect(parseCadDocument(roundTripped).success).toBe(true);
   });
 
   it('accepts a document with a valid extrude feature referencing an existing sketch', () => {

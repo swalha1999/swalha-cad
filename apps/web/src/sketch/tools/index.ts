@@ -1,3 +1,6 @@
+import { advanceArc3PointTool, initialArc3PointToolState } from './arc-3point-tool.js';
+import { advanceArcCenterTool, initialArcCenterToolState } from './arc-center-tool.js';
+import { advanceArcTangentTool, initialArcTangentToolState } from './arc-tangent-tool.js';
 import { advanceCircleTool, initialCircleToolState } from './circle-tool.js';
 import { advanceCircle3PointTool, initialCircle3PointToolState } from './circle-3point-tool.js';
 import { advanceLineTool, initialLineToolState } from './line-tool.js';
@@ -6,6 +9,7 @@ import { advancePolygonTool, initialPolygonToolState } from './polygon-tool.js';
 import { advanceRectangleTool, initialRectangleToolState } from './rectangle-tool.js';
 import { advanceRectangleCenterTool, initialRectangleCenterToolState } from './rectangle-center-tool.js';
 import { advanceRectangle3PointTool, initialRectangle3PointToolState } from './rectangle-3point-tool.js';
+import { advanceSlotTool, initialSlotToolState } from './slot-tool.js';
 import type { SketchToolKind, ToolEvent, ToolResult, ToolState } from './types.js';
 
 /** The pending state a freshly selected tool starts from. */
@@ -27,6 +31,14 @@ export function initialToolState(kind: SketchToolKind): ToolState {
       return initialCircle3PointToolState;
     case 'polygon':
       return initialPolygonToolState;
+    case 'arc-center':
+      return initialArcCenterToolState;
+    case 'arc-3point':
+      return initialArc3PointToolState;
+    case 'arc-tangent':
+      return initialArcTangentToolState;
+    case 'slot':
+      return initialSlotToolState;
     default: {
       const exhaustive: never = kind;
       throw new Error(`Unknown sketch tool: ${JSON.stringify(exhaustive)}`);
@@ -53,6 +65,14 @@ export function advanceTool(state: ToolState, event: ToolEvent): ToolResult {
       return advanceCircle3PointTool(state, event);
     case 'polygon':
       return advancePolygonTool(state, event);
+    case 'arc-center':
+      return advanceArcCenterTool(state, event);
+    case 'arc-3point':
+      return advanceArc3PointTool(state, event);
+    case 'arc-tangent':
+      return advanceArcTangentTool(state, event);
+    case 'slot':
+      return advanceSlotTool(state, event);
     default: {
       const exhaustive: never = state;
       throw new Error(`Unknown tool state: ${JSON.stringify(exhaustive)}`);
@@ -68,4 +88,8 @@ export { advancePolygonTool, buildPolygonCommit, initialPolygonToolState } from 
 export { advanceRectangleTool, buildRectangleCommit, initialRectangleToolState } from './rectangle-tool.js';
 export { advanceRectangleCenterTool, buildCenterRectangleCommit, initialRectangleCenterToolState } from './rectangle-center-tool.js';
 export { advanceRectangle3PointTool, buildThreePointRectangleCommit, initialRectangle3PointToolState } from './rectangle-3point-tool.js';
+export { advanceArcCenterTool, buildCenterArcCommit, initialArcCenterToolState } from './arc-center-tool.js';
+export { advanceArc3PointTool, buildThreePointArcCommit, initialArc3PointToolState } from './arc-3point-tool.js';
+export { advanceArcTangentTool, buildTangentArcCommit, initialArcTangentToolState } from './arc-tangent-tool.js';
+export { advanceSlotTool, buildSlotCommit, initialSlotToolState } from './slot-tool.js';
 export type * from './types.js';

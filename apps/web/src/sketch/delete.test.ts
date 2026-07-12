@@ -31,7 +31,35 @@ function squareWithCircle(): SketchFeature {
   };
 }
 
+/** A single arc on its own center point. */
+function arcOnCenter(): SketchFeature {
+  return {
+    id: 'sketch-arc',
+    kind: 'sketch',
+    name: 'Sketch Arc',
+    plane: 'XY',
+    visible: true,
+    entities: [
+      { id: 'ac', kind: 'point', x: 0, y: 0, construction: false },
+      { id: 'a1', kind: 'arc', centerId: 'ac', radius: 5, startAngle: 0, endAngle: Math.PI / 2, direction: 'ccw', construction: false },
+    ],
+    constraints: [],
+  };
+}
+
 describe('removeSketchEntities', () => {
+  it('cascades an arc removal when its center point is deleted', () => {
+    const { entities } = removeSketchEntities(arcOnCenter(), ['ac']);
+    expect(entities.some((entity) => entity.id === 'ac')).toBe(false);
+    expect(entities.some((entity) => entity.id === 'a1')).toBe(false);
+  });
+
+  it('removes a selected arc directly, leaving its center point', () => {
+    const { entities } = removeSketchEntities(arcOnCenter(), ['a1']);
+    expect(entities.some((entity) => entity.id === 'a1')).toBe(false);
+    expect(entities.some((entity) => entity.id === 'ac')).toBe(true);
+  });
+
   it('removes a selected line and any constraint that references it', () => {
     const { entities, constraints } = removeSketchEntities(squareWithCircle(), ['l1']);
 
