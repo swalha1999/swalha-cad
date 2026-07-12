@@ -72,7 +72,7 @@ async function buildSymmetricBox(page: Page): Promise<void> {
 }
 
 /** Orients the camera with an orthographic standard view so the named face fills the canvas centre for a deterministic pick. */
-async function orthoView(page: Page, view: 'Front view' | 'Right view'): Promise<void> {
+async function orthoView(page: Page, view: 'Top view' | 'Front view' | 'Right view'): Promise<void> {
   await page.getByRole('button', { name: 'Orthographic' }).click();
   await page.getByRole('button', { name: view }).click();
 }
@@ -92,8 +92,9 @@ test('preselect a top face, sketch on it, and extrude a stacked solid', async ({
   await page.goto('/');
   await buildSymmetricBox(page);
 
-  // The symmetric box top cap (+Z at z=20) faces the front orthographic camera.
-  await orthoView(page, 'Front view');
+  // Z-up: the symmetric box's +Z top cap (at z=20) faces the top orthographic
+  // camera looking straight down world Z, so a centre click preselects it.
+  await orthoView(page, 'Top view');
 
   // Preselect-then-Sketch: click the face in the viewport to preselect it, then the
   // single Sketch action enters immediately (no support command needed).

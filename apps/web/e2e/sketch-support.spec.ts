@@ -88,7 +88,8 @@ test('Sketch then select a planar solid face confirms into a face sketch', async
   await page.goto('/');
   await buildSymmetricBox(page);
 
-  // The +Z top cap faces the front orthographic camera at the canvas centre.
+  // Z-up: the box's -Y side wall faces the front orthographic camera, filling the
+  // canvas centre with a planar face ready to pick.
   await page.getByRole('button', { name: 'Orthographic' }).click();
   await page.getByRole('button', { name: 'Front view' }).click();
 

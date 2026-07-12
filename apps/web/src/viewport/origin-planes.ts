@@ -76,9 +76,15 @@ const PLANE_ORDER: OriginPlaneId[] = ['XY', 'XZ', 'YZ'];
  * (each reading against its own plane) instead of stacking in the centre.
  */
 const LABEL_OFFSET: Record<OriginPlaneId, [number, number]> = {
-  XY: [0.56, 0.66],
-  XZ: [-0.34, 0.44],
-  YZ: [-0.56, 0.6],
+  // Local-frame offsets under the Z-up home view. XY (Top): local x→+X (screen
+  // lower-right), local y→+Y (screen upper-right) — nudge toward the diamond's
+  // back so "Top" reads near the top-centre of the horizontal plane. XZ (Front):
+  // local x→+X, local y→-Z — negative x/y lift the label to the wall's upper-left
+  // like the reference. YZ (Right): local x→-Z, local y→+Y — negative x lifts it
+  // toward the top of the right wall.
+  XY: [0.3, -0.3],
+  XZ: [-0.5, -0.31],
+  YZ: [-0.19, 0.5],
 };
 
 /**

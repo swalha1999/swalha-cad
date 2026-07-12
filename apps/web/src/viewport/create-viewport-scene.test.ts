@@ -533,7 +533,9 @@ describe('createViewportScene', () => {
     scene.dispose();
   });
 
-  it('moves the camera to a standard view direction, preserving distance from the origin', () => {
+  it('moves the camera to the front view along the world -Y axis, up +Z', () => {
+    // Z-up CAD convention: the Front plane is XZ (normal ±Y), so the Front view
+    // looks down that normal — camera on -Y, screen-up +Z.
     const scene = createViewportScene({
       canvas: buildCanvas(),
       document: seedDocument(),
@@ -549,13 +551,42 @@ describe('createViewportScene', () => {
 
     const camera = scene.getActiveCamera();
     expect(camera.position.x).toBeCloseTo(0, 5);
-    expect(camera.position.y).toBeCloseTo(0, 5);
-    expect(camera.position.z).toBeCloseTo(distanceBefore, 5);
+    expect(camera.position.y).toBeCloseTo(-distanceBefore, 5);
+    expect(camera.position.z).toBeCloseTo(0, 5);
+    // Front stands vertical: screen-up is world +Z.
+    expect(camera.up.x).toBeCloseTo(0, 5);
+    expect(camera.up.y).toBeCloseTo(0, 5);
+    expect(camera.up.z).toBeCloseTo(1, 5);
 
     scene.dispose();
   });
 
-  it('moves to the top view along the world Y axis', () => {
+  it('moves the camera to the right view along the world +X axis, up +Z', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const distanceBefore = scene.getActiveCamera().position.length();
+
+    scene.setStandardView('right');
+
+    const camera = scene.getActiveCamera();
+    expect(camera.position.x).toBeCloseTo(distanceBefore, 5);
+    expect(camera.position.y).toBeCloseTo(0, 5);
+    expect(camera.position.z).toBeCloseTo(0, 5);
+    expect(camera.up.z).toBeCloseTo(1, 5);
+
+    scene.dispose();
+  });
+
+  it('moves to the top view along the world +Z axis, up +Y', () => {
+    // Z-up: the Top plane is XY (normal +Z); the Top view looks straight down +Z,
+    // with a stable screen-up of world +Y (the XY plane's y axis).
     const scene = createViewportScene({
       canvas: buildCanvas(),
       document: seedDocument(),
@@ -571,13 +602,17 @@ describe('createViewportScene', () => {
 
     const camera = scene.getActiveCamera();
     expect(camera.position.x).toBeCloseTo(0, 5);
-    expect(camera.position.y).toBeCloseTo(distanceBefore, 5);
-    expect(camera.position.z).toBeCloseTo(0, 5);
+    expect(camera.position.y).toBeCloseTo(0, 5);
+    expect(camera.position.z).toBeCloseTo(distanceBefore, 5);
+    // Looking straight down world Z, screen-up is world +Y (not degenerate).
+    expect(camera.up.x).toBeCloseTo(0, 5);
+    expect(camera.up.y).toBeCloseTo(1, 5);
+    expect(camera.up.z).toBeCloseTo(0, 5);
 
     scene.dispose();
   });
 
-  it('restores the default home view direction', () => {
+  it('restores the default Z-up home view direction (+X, -Y, +Z)', () => {
     const scene = createViewportScene({
       canvas: buildCanvas(),
       document: seedDocument(),
@@ -592,9 +627,12 @@ describe('createViewportScene', () => {
     scene.setStandardView('home');
 
     const camera = scene.getActiveCamera();
+    // The Onshape-style home angle shows Front (-Y), Right (+X), and Top (+Z) faces.
     expect(camera.position.x).toBeGreaterThan(0);
-    expect(camera.position.y).toBeGreaterThan(0);
+    expect(camera.position.y).toBeLessThan(0);
     expect(camera.position.z).toBeGreaterThan(0);
+    // Home keeps world Z up so orbit stays Z-up.
+    expect(camera.up.z).toBeCloseTo(1, 5);
 
     scene.dispose();
   });
@@ -1039,5 +1077,112 @@ describe('createViewportScene', () => {
 
     expect(transformControls.dispose).toHaveBeenCalled();
     expect(scene.scene.children).not.toContain(transformControls.getHelper());
+  });
+
+  describe('Z-up CAD orientation', () => {
+    function emptyScene() {
+      return createViewportScene({
+        canvas: buildCanvas(),
+        document: { schemaVersion: 2, units: 'mm', entities: [], features: [] },
+        projection: 'perspective',
+        selectedEntityId: null,
+        viewport: { width: 200, height: 200 },
+        onSelect: vi.fn(),
+        onTransformChange: vi.fn(),
+      });
+    }
+
+    it('starts both cameras with world +Z as the up direction', () => {
+      const scene = emptyScene();
+      const camera = scene.getActiveCamera();
+      expect(camera.up.x).toBeCloseTo(0, 6);
+      expect(camera.up.y).toBeCloseTo(0, 6);
+      expect(camera.up.z).toBeCloseTo(1, 6);
+
+      // The orthographic camera shares the same Z-up convention after a switch.
+      scene.setProjection('orthographic');
+      const ortho = scene.getActiveCamera();
+      expect(ortho.up.z).toBeCloseTo(1, 6);
+
+      scene.dispose();
+    });
+
+    it('positions the default home camera in the (+X, -Y, +Z) octant so Front/Right/Top read correctly', () => {
+      const scene = emptyScene();
+      const camera = scene.getActiveCamera();
+      expect(camera.position.x).toBeGreaterThan(0);
+      expect(camera.position.y).toBeLessThan(0);
+      expect(camera.position.z).toBeGreaterThan(0);
+      scene.dispose();
+    });
+
+    it('renders the Top plane (XY) horizontal with a +Z normal and Front/Right vertical', () => {
+      const scene = emptyScene();
+      scene.scene.updateMatrixWorld(true);
+      const groupFor = (id: string) => scene.scene.children.find((child) => child.userData['planeId'] === id)!;
+      const worldNormal = (id: string) => new Vector3(0, 0, 1).applyQuaternion(groupFor(id).quaternion).normalize();
+
+      // Top plane normal is world up (+Z) → the plane is horizontal.
+      const top = worldNormal('XY');
+      expect(Math.abs(top.z)).toBeCloseTo(1, 5);
+      expect(Math.abs(top.x)).toBeCloseTo(0, 5);
+      expect(Math.abs(top.y)).toBeCloseTo(0, 5);
+
+      // Front (XZ) normal lies along world ±Y → a vertical wall.
+      const front = worldNormal('XZ');
+      expect(Math.abs(front.y)).toBeCloseTo(1, 5);
+      expect(Math.abs(front.z)).toBeCloseTo(0, 5);
+
+      // Right (YZ) normal lies along world ±X → a vertical wall.
+      const right = worldNormal('YZ');
+      expect(Math.abs(right.x)).toBeCloseTo(1, 5);
+      expect(Math.abs(right.z)).toBeCloseTo(0, 5);
+
+      scene.dispose();
+    });
+
+    it('lays the ground grid on the XY plane (its normal is world +Z)', () => {
+      const scene = emptyScene();
+      scene.scene.updateMatrixWorld(true);
+      const grid = scene.scene.children.find((child) => child.type === 'GridHelper')!;
+      expect(grid).toBeTruthy();
+      // A GridHelper is authored in its local XZ plane (normal +Y); on the XY ground
+      // plane its world normal must point along world +Z.
+      const normal = new Vector3(0, 1, 0).applyQuaternion(grid.quaternion).normalize();
+      expect(Math.abs(normal.z)).toBeCloseTo(1, 5);
+      expect(Math.abs(normal.x)).toBeCloseTo(0, 5);
+      expect(Math.abs(normal.y)).toBeCloseTo(0, 5);
+      // It sits just below the origin planes along the up (Z) axis.
+      expect(grid.position.z).toBeLessThan(0);
+      expect(grid.position.y).toBeCloseTo(0, 6);
+
+      scene.dispose();
+    });
+
+    it('aligns the camera normal-to-face without roll or mirroring (screen-up = frame yAxis, right-handed)', () => {
+      const scene = emptyScene();
+      const origin: [number, number, number] = [0, 0, 5];
+      const normal: [number, number, number] = [0, 0, 1];
+      const yAxis: [number, number, number] = [0, 1, 0];
+      scene.alignCameraToFace({ origin, normal, yAxis });
+
+      const camera = scene.getActiveCamera();
+      // Camera sits along +normal from the face origin and looks back down it.
+      const toCamera = camera.position.clone().sub(new Vector3(...origin)).normalize();
+      expect(toCamera.dot(new Vector3(...normal))).toBeCloseTo(1, 4);
+      // Screen-up is exactly the frame's y axis (no roll).
+      expect(camera.up.x).toBeCloseTo(yAxis[0], 5);
+      expect(camera.up.y).toBeCloseTo(yAxis[1], 5);
+      expect(camera.up.z).toBeCloseTo(yAxis[2], 5);
+
+      // Screen-right (camera local +X) equals xAxis = cross(yAxis, normal) — a
+      // right-handed basis, so 2D sketch X maps to screen-right with no mirror.
+      camera.updateMatrixWorld(true);
+      const screenRight = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+      const expectedRight = new Vector3(...yAxis).cross(new Vector3(...normal)).normalize();
+      expect(screenRight.dot(expectedRight)).toBeCloseTo(1, 4);
+
+      scene.dispose();
+    });
   });
 });

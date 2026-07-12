@@ -118,15 +118,39 @@ const FACE_HOVER_HEX = 0x5b8cff;
 const FACE_SELECT_HEX = 0x2f6bff;
 /** Opacity applied to every body's material while the model is dimmed (armed face pick or an active sketch). */
 const DIMMED_OPACITY = 0.3;
-const DEFAULT_CAMERA_POSITION = [146, 115, 167] as const;
+/**
+ * The startup/home camera pose, expressed in the CAD Z-up world convention: an
+ * isometric-ish angle in the (+X, -Y, +Z) octant so the Top plane (XY, normal
+ * +Z) reads as the low horizontal diamond while Front (XZ) and Right (YZ) stand
+ * as vertical walls — matching the Onshape reference home view.
+ */
+const DEFAULT_CAMERA_POSITION = [150, -150, 130] as const;
+/** World up axis. This viewport uses a Z-up convention so canonical sketch semantics (XY=Top, normal +Z) read correctly. */
+const WORLD_UP = new Vector3(0, 0, 1);
 const DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT = 220;
 
 /** Unit view directions for the floating navigation controls and view cube; `home` restores the default isometric-ish angle. */
 const STANDARD_VIEW_DIRECTIONS: Record<StandardView, Vector3> = {
-  front: new Vector3(0, 0, 1),
-  top: new Vector3(0, 1, 0),
+  // Front is the XZ plane (normal ±Y): look down it from -Y. Right is YZ (normal
+  // +X): look down it from +X. Top is XY (normal +Z): look straight down +Z.
+  front: new Vector3(0, -1, 0),
+  top: new Vector3(0, 0, 1),
   right: new Vector3(1, 0, 0),
   home: new Vector3(...DEFAULT_CAMERA_POSITION).normalize(),
+};
+
+/**
+ * Screen-up (camera `up`) for each standard view. Front/Right/home keep world +Z
+ * up so the vertical planes stand upright and orbiting stays Z-up. Looking
+ * straight down world Z for the Top view makes +Z a degenerate up vector, so Top
+ * uses world +Y — which is exactly the XY plane's own y axis, mapping sketch Y to
+ * screen-up with no roll or mirror.
+ */
+const STANDARD_VIEW_UP: Record<StandardView, Vector3> = {
+  front: new Vector3(0, 0, 1),
+  top: new Vector3(0, 1, 0),
+  right: new Vector3(0, 0, 1),
+  home: new Vector3(0, 0, 1),
 };
 
 /**
@@ -145,6 +169,9 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     viewHeight: DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT,
   });
   for (const camera of [perspectiveCamera, orthographicCamera]) {
+    // Z-up world: set up before lookAt so the initial basis is Z-up, not the
+    // Three.js default Y-up (which would render the Top plane as a vertical wall).
+    camera.up.copy(WORLD_UP);
     camera.position.set(...DEFAULT_CAMERA_POSITION);
     camera.lookAt(0, 0, 0);
   }
@@ -162,13 +189,18 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   // unselected body visibly lit and shaded from the default camera angle.
   const ambientLight = new AmbientLight(0xffffff, 0.7);
   const keyLight = new DirectionalLight(0xffffff, 1.2);
-  keyLight.position.set(160, 220, 140);
+  // Z-up: the key light comes from high above (+Z) and the front-right so the
+  // shaded bodies read the same as under the reference's top-down key.
+  keyLight.position.set(140, -160, 220);
   const fillLight = new DirectionalLight(0xffffff, 0.45);
-  fillLight.position.set(-140, 90, -120);
+  fillLight.position.set(-120, 140, 90);
   // A faint ground grid, sitting just below the compact origin planes, adds subtle
-  // depth without competing with them (the reference grid is barely-there).
+  // depth without competing with them (the reference grid is barely-there). A
+  // GridHelper is authored in its local XZ plane; rotate it onto the XY ground
+  // plane and drop it along -Z so it lies flat beneath the horizontal Top plane.
   const groundGrid = new GridHelper(400, 40, 0xd2d8e2, 0xe7ebf1);
-  groundGrid.position.y = -PLANE_HALF;
+  groundGrid.rotation.x = Math.PI / 2;
+  groundGrid.position.z = -PLANE_HALF;
   const groundGridMaterial = groundGrid.material as LineBasicMaterial | LineBasicMaterial[];
   for (const material of Array.isArray(groundGridMaterial) ? groundGridMaterial : [groundGridMaterial]) {
     material.transparent = true;
@@ -568,9 +600,10 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       const distance = activeCamera.position.length() || DEFAULT_CAMERA_POSITION[0];
       const direction = STANDARD_VIEW_DIRECTIONS[view];
       activeCamera.position.copy(direction).multiplyScalar(distance);
-      // Looking straight down/up the world Y axis makes the default "up" vector
-      // degenerate for lookAt's basis; use Z as "up" only for that view.
-      activeCamera.up.set(0, view === 'top' ? 0 : 1, view === 'top' ? 1 : 0);
+      // Each Z-up standard view carries its own screen-up (see STANDARD_VIEW_UP):
+      // vertical views keep world +Z up; the Top view looks straight down +Z, for
+      // which +Z is a degenerate up, so it uses world +Y instead.
+      activeCamera.up.copy(STANDARD_VIEW_UP[view]);
       activeCamera.lookAt(0, 0, 0);
       controls.target.set(0, 0, 0);
       controls.update();
