@@ -14,8 +14,9 @@ import type { PreviewGeometry } from './preview.js';
 import { modifyPreview } from './modify/index.js';
 import type { ModifyPreview } from './modify/index.js';
 import { filletPreview, pickFilletLine, suggestFilletRadius, type FilletComputation, type FilletPick } from './modify/fillet.js';
+import { mirrorPreview, pickMirrorAxis, type MirrorComputation } from './modify/mirror.js';
 import { FilletPrompt } from './FilletPrompt.js';
-import type { FilletPickRef, FilletState } from '../store/cad-store.js';
+import type { FilletPickRef, FilletState, MirrorState } from '../store/cad-store.js';
 import type { SnapKind, Vec2 } from './tools/types.js';
 import { useSketchInteraction } from './useSketchInteraction.js';
 import {
@@ -369,6 +370,101 @@ function resolveFilletView(sketch: SketchFeature, fillet: FilletState): FilletVi
   return { highlightIds, computation, editor, diagnostic };
 }
 
+/** A highlighted outline of any sketch entity (line, arc, circle, or point) for the Mirror source/axis feedback. */
+function EntityHighlight({
+  entities,
+  targetId,
+  className,
+}: {
+  entities: readonly SketchEntity[];
+  targetId: string;
+  className: string;
+}) {
+  const points = pointMap(entities);
+  const target = entities.find((entity) => entity.id === targetId);
+  if (!target) return null;
+  if (target.kind === 'line') {
+    const a = points.get(target.startId);
+    const b = points.get(target.endId);
+    if (!a || !b) return null;
+    const pa = planeToSvg(a.x, a.y);
+    const pb = planeToSvg(b.x, b.y);
+    return <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className={className} />;
+  }
+  if (target.kind === 'arc') {
+    const c = points.get(target.centerId);
+    if (!c) return null;
+    const d = arcPathD({
+      center: [c.x, c.y],
+      radius: target.radius,
+      startAngle: target.startAngle,
+      endAngle: target.endAngle,
+      direction: target.direction,
+    });
+    return <path d={d} fill="none" className={className} />;
+  }
+  if (target.kind === 'circle') {
+    const c = points.get(target.centerId);
+    if (!c) return null;
+    const center = planeToSvg(c.x, c.y);
+    return <circle cx={center.x} cy={center.y} r={target.radius * PIXELS_PER_UNIT} fill="none" className={className} />;
+  }
+  const p = planeToSvg(target.x, target.y);
+  return <circle cx={p.x} cy={p.y} r={5} fill="none" className={className} />;
+}
+
+/** The derived render inputs for the Mirror tool: the sources to highlight, the axis, and the previewable reflection. */
+interface MirrorView {
+  readonly sourceIds: readonly string[];
+  readonly axisId: string | null;
+  readonly computation: MirrorComputation | null;
+}
+
+/** Resolves the Mirror tool's transient state into everything the overlay draws (pure; recomputed per render). */
+function resolveMirrorView(sketch: SketchFeature, mirror: MirrorState): MirrorView {
+  if (mirror.phase === 'confirm') {
+    return { sourceIds: mirror.sourceIds, axisId: mirror.axisId, computation: mirrorPreview(sketch, mirror.sourceIds, mirror.axisId) };
+  }
+  if (mirror.phase === 'axis' && mirror.hover) {
+    const candidate = pickMirrorAxis(sketch, [mirror.hover.x, mirror.hover.y]);
+    if (candidate && !mirror.sourceIds.includes(candidate)) {
+      return { sourceIds: mirror.sourceIds, axisId: candidate, computation: mirrorPreview(sketch, mirror.sourceIds, candidate) };
+    }
+  }
+  return { sourceIds: mirror.sourceIds, axisId: null, computation: null };
+}
+
+/**
+ * The live mirrored-geometry preview: the reflected lines, circles, arcs, and
+ * points a confirm would create, drawn in the accent colour. Purely a preview —
+ * nothing is committed until the checkmark is pressed.
+ */
+function MirrorOverlay({ computation }: { computation: Extract<MirrorComputation, { ok: true }> }) {
+  const { preview } = computation;
+  return (
+    <g className="sketch-overlay__mirror" aria-hidden="true">
+      {preview.lines.map(([a, b], index) => {
+        const pa = planeToSvg(a[0], a[1]);
+        const pb = planeToSvg(b[0], b[1]);
+        return <line key={`ml${index}`} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className="sketch-overlay__mirror-line" />;
+      })}
+      {preview.circles.map((circle, index) => {
+        const center = planeToSvg(circle.center[0], circle.center[1]);
+        return (
+          <circle key={`mc${index}`} cx={center.x} cy={center.y} r={circle.radius * PIXELS_PER_UNIT} fill="none" className="sketch-overlay__mirror-line" />
+        );
+      })}
+      {preview.arcs.map((arc, index) => (
+        <path key={`ma${index}`} d={arcPathD(arc)} fill="none" className="sketch-overlay__mirror-line" />
+      ))}
+      {preview.points.map((point, index) => {
+        const p = planeToSvg(point[0], point[1]);
+        return <circle key={`mp${index}`} cx={p.x} cy={p.y} r={3} className="sketch-overlay__mirror-point" />;
+      })}
+    </g>
+  );
+}
+
 function SnapIndicator({ cursor, kind }: { cursor: Vec2; kind: SnapKind }) {
   const p = planeToSvg(cursor.x, cursor.y);
   return (
@@ -400,28 +496,39 @@ export function SketchOverlay() {
   const toggleSelection = useCadStore((state) => state.toggleSketchEntitySelection);
   const dimensionPick = useCadStore((state) => state.dimensionPick);
 
+  const mirrorToggleSource = useCadStore((state) => state.mirrorToggleSource);
+
   const entities = sketch?.entities ?? [];
   const preview = toolPreview(session?.toolState ?? null, session?.cursor ?? null);
   const modify = session?.modify ?? null;
   const fillet = session?.fillet ?? null;
-  // Modify and Fillet tools own clicks, so the per-entity selection hit targets must not intercept them.
-  const selectable = !session?.tool && !modify && !fillet;
+  const mirror = session?.mirror ?? null;
+  // The Mirror source collector reuses the accessible per-entity hit targets; its axis/confirm
+  // phases (like Modify and Fillet) own the canvas clicks, so the hit targets must not intercept them.
+  const mirrorCollectingSources = mirror?.phase === 'sources';
+  const selectable = !session?.tool && !modify && !fillet && (!mirror || mirrorCollectingSources);
   const modifyPoint = modify?.point ?? null;
   const modifyView: ModifyPreview | null =
     sketch && modify && modifyPoint ? modifyPreview(sketch, modify.tool, [modifyPoint.x, modifyPoint.y]) : null;
   const status = solve?.status ?? 'under-constrained';
-  const selectionSet = new Set(selection);
-  const filletView = sketch && fillet ? resolveFilletView(sketch, fillet) : null;
   const dimension = session?.dimension ?? null;
-  // While the Distance tool is picking geometry, entity clicks feed the dimension; otherwise they toggle selection.
-  const onEntityClick = dimension?.phase === 'picking' ? dimensionPick : toggleSelection;
+  // Mirror sources show as the current selection while collecting; otherwise the constraint selection.
+  const selectionSet = mirrorCollectingSources ? new Set(mirror.sourceIds) : new Set(selection);
+  const filletView = sketch && fillet ? resolveFilletView(sketch, fillet) : null;
+  const mirrorView = sketch && mirror ? resolveMirrorView(sketch, mirror) : null;
+  // Entity clicks feed whichever collector owns them: Mirror sources, then the Distance tool, else selection.
+  const onEntityClick = mirrorCollectingSources
+    ? mirrorToggleSource
+    : dimension?.phase === 'picking'
+      ? dimensionPick
+      : toggleSelection;
   const annotation =
     sketch && dimension?.phase === 'awaiting' ? dimensionAnnotation(sketch, dimension, DIMENSION_OFFSET_MM) : null;
 
   return (
     <>
       <div className="visually-hidden" role="status" aria-live="polite">
-        {modify?.note ?? fillet?.note ?? ''}
+        {modify?.note ?? fillet?.note ?? mirror?.note ?? ''}
       </div>
       <svg
         ref={svgRef}
@@ -465,6 +572,13 @@ export function SketchOverlay() {
           <FilletPrompt radius={filletView.editor.radius} />
         </foreignObject>
       ) : null}
+      {mirrorView?.sourceIds.map((id) => (
+        <EntityHighlight key={`mirror-src-${id}`} entities={entities} targetId={id} className="sketch-overlay__mirror-source" />
+      ))}
+      {mirrorView?.axisId ? (
+        <EntityHighlight entities={entities} targetId={mirrorView.axisId} className="sketch-overlay__mirror-axis" />
+      ) : null}
+      {mirrorView?.computation?.ok ? <MirrorOverlay computation={mirrorView.computation} /> : null}
       {annotation && dimension?.phase === 'awaiting' ? <DimensionOverlay annotation={annotation} measured={dimension.measured} /> : null}
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
       </svg>

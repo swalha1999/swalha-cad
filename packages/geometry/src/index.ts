@@ -74,6 +74,10 @@ export { centerRectangleCorners, circumcircle, regularPolygonVertices, threePoin
 // direction); each function returns null for degenerate input.
 export type { ArcDirection, ArcGeometry, SlotTangentPoints, StraightSlot } from './sketch/arc.js';
 export { arcEndpoints, centerPointArc, sampleArc, signedArcSweep, straightSlot, tangentArc, threePointArc } from './sketch/arc.js';
+// Pure plane-local reflection for the Onshape-style sketch Mirror tool: reflect a
+// point or a circular arc across an infinite straight axis, preserving distances
+// (radius/sweep magnitude) and reversing orientation (arc direction).
+export { reflectArcAcrossLine, reflectPointAcrossLine } from './sketch/mirror.js';
 export type { FilletLineInput, FilletResult, FilletRejection, FilletSolution, RetainedEndpoint } from './sketch/fillet.js';
 export { filletTwoLines, MIN_CORNER_ANGLE, MAX_CORNER_ANGLE } from './sketch/fillet.js';
 // Watertight profile extrusion: sweep a sketch's single detected closed

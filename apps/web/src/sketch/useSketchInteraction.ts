@@ -127,6 +127,11 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         state.setModifyPoint(rawAt(event.clientX, event.clientY));
         return;
       }
+      if (state.sketch?.mirror) {
+        // The Mirror axis collector previews against the nearest line under the cursor.
+        if (state.sketch.mirror.phase === 'axis') state.mirrorHover(rawAt(event.clientX, event.clientY));
+        return;
+      }
       const snap = snapAt(event.clientX, event.clientY, event.altKey);
       if (snap) state.dispatchSketchEvent({ type: 'move', snap });
     },
@@ -150,6 +155,14 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
       if (state.sketch?.modify) {
         const point = rawAt(event.clientX, event.clientY);
         if (point) state.applySketchModify(point);
+        return;
+      }
+      // The Mirror axis collector owns canvas clicks; source collection uses the entity hit targets.
+      if (state.sketch?.mirror) {
+        if (state.sketch.mirror.phase === 'axis') {
+          const point = rawAt(event.clientX, event.clientY);
+          if (point) state.mirrorPickAxis(point);
+        }
         return;
       }
       // With no drawing tool active the canvas is in selection mode: a click on
@@ -184,6 +197,11 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // The Fillet tool cancels one layer at a time (awaiting → picking → cleared pick → tool exit).
         if (state.sketch.fillet) {
           state.cancelFillet();
+          return;
+        }
+        // The Mirror tool cancels one layer at a time (confirm → axis → sources → cleared → tool exit).
+        if (state.sketch.mirror) {
+          state.cancelMirror();
           return;
         }
         // A Modify tool cancels its current preview first, then exits on a second Escape.
@@ -231,6 +249,10 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // Fillet tool (from the Modify group): rounds a corner between two lines.
         event.preventDefault();
         state.startFillet();
+      } else if (key === 'm') {
+        // Mirror tool (from the Modify group): reflects geometry across a sketch line.
+        event.preventDefault();
+        state.startMirror();
       } else if (key === 'g') {
         event.preventDefault();
         state.setGridVisible(!state.gridVisible);

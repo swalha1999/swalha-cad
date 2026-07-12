@@ -916,6 +916,85 @@ body {
   stroke-width: 3;
 }
 
+/* Mirror: highlight of a collected source entity. */
+.sketch-overlay__mirror-source {
+  stroke: var(--shell-accent);
+  stroke-width: 3;
+  stroke-opacity: 0.5;
+  stroke-linecap: round;
+}
+
+/* Mirror: the chosen axis line, drawn as a bold dash-dot centreline. */
+.sketch-overlay__mirror-axis {
+  stroke: #f5a524;
+  stroke-width: 2.5;
+  stroke-dasharray: 10 3 2 3;
+  stroke-linecap: round;
+}
+
+/* Mirror: the previewed reflected lines/circles/arcs. */
+.sketch-overlay__mirror-line {
+  stroke: var(--shell-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* Mirror: the previewed reflected points. */
+.sketch-overlay__mirror-point {
+  fill: var(--shell-accent);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+/* The floating Mirror collector panel over the sketch canvas. */
+.mirror-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--popover, #1b1b1f);
+  color: var(--popover-foreground, #f4f4f5);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+.mirror-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mirror-panel__title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mirror-panel__hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.mirror-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mirror-panel__confirm svg,
+.mirror-panel__cancel svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Only the invisible hit targets catch pointer events; the painted geometry and
    glyph badges stay click-through so selection is unambiguous. */
 .sketch-overlay__line,

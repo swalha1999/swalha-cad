@@ -56,6 +56,7 @@ import {
   suggestFilletRadius,
   type FilletPick,
 } from '../sketch/modify/fillet.js';
+import { applyMirror, computeMirror, pickMirrorAxis } from '../sketch/modify/mirror.js';
 
 export type CameraProjection = 'perspective' | 'orthographic';
 
@@ -112,6 +113,33 @@ export interface SketchSession {
    * committed until the radius is entered.
    */
   fillet: FilletState | null;
+  /**
+   * Non-null while the Mirror tool owns the sketch: it collects one or more source
+   * entities and one axis line, previews the reflected geometry, and commits one
+   * `feature.update`. See {@link MirrorState}. Purely transient interaction state —
+   * the mirrored geometry is not committed until confirmation.
+   */
+  mirror: MirrorState | null;
+}
+
+/**
+ * The live state of the sketch Mirror tool, an Onshape-style nonblocking
+ * collector. `sources` collects the entities to mirror (Ctrl/Cmd multi-selection);
+ * `axis` locks the sources and collects the mirror-axis line (the hover point
+ * drives the live preview); `confirm` holds a resolved axis and sources while the
+ * reflected geometry is previewed behind stable checkmark/Cancel controls. Nothing
+ * mutates until confirm, so cancelling restores the exact prior geometry.
+ */
+export type MirrorState =
+  | { phase: 'sources'; sourceIds: string[]; hover: Vec2 | null; note: string | null }
+  | { phase: 'axis'; sourceIds: string[]; hover: Vec2 | null; note: string | null }
+  | { phase: 'confirm'; sourceIds: string[]; axisId: string; note: string | null };
+
+/** The result of confirming a mirror, so a caller can surface why it was rejected or what it reported. */
+export interface MirrorOutcome {
+  applied: boolean;
+  reason: 'applied' | 'invalid' | 'not-ready';
+  message: string | null;
 }
 
 /** The live state of an active Trim/Split/Extend modify tool: which tool, the cursor point driving its preview, and the last commit's report. */
@@ -360,6 +388,41 @@ export interface CadStoreState {
    * picking state exits the tool. No-op when the tool is inactive.
    */
   cancelFillet: () => void;
+  /**
+   * Activates (or toggles off) the Mirror tool from the Modify group. Infers roles
+   * from the current selection: sources plus exactly one line jump straight to the
+   * confirm preview (the line is the axis); a selection with no line, or multiple
+   * lines (ambiguous), locks the selection as sources and collects the axis; an
+   * empty selection starts the source collector. Leaves any drawing/Distance/Modify/
+   * Fillet tool. No-op outside sketch mode.
+   */
+  startMirror: () => void;
+  /** Toggles an entity's membership in the Mirror source collector; no-op unless collecting sources. */
+  mirrorToggleSource: (id: string) => void;
+  /** Advances the Mirror collector from source collection to axis picking; no-op unless there is at least one source. */
+  mirrorChooseAxis: () => void;
+  /** Updates the hover point driving the Mirror axis preview while picking; no-op unless picking sources/axis. */
+  mirrorHover: (point: Vec2 | null) => void;
+  /**
+   * Feeds a plane-local click to the Mirror axis collector: resolves the nearest
+   * line as the axis (removing it from the sources if it was among them) and moves
+   * to the confirm preview. No-op unless collecting the axis.
+   */
+  mirrorPickAxis: (point: Vec2) => void;
+  /**
+   * Confirms the previewed mirror as exactly one `feature.update` command through
+   * history (appending the reflected geometry and any safely-cloned constraints,
+   * never mutating the sources), re-solving and returning to the source collector
+   * for the next mirror. Rejects (mutating nothing) when roles are unresolved or
+   * the reflection is invalid. No-op unless awaiting confirmation.
+   */
+  confirmMirror: () => MirrorOutcome;
+  /**
+   * Cancels the Mirror tool one layer at a time without mutating the document:
+   * confirm → axis, axis → sources, a non-empty source set → cleared, and an empty
+   * source collector exits the tool. No-op when the tool is inactive.
+   */
+  cancelMirror: () => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
   /** Sets one snap toggle to a specific value. */
@@ -807,6 +870,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           dimension: null,
           modify: null,
           fillet: null,
+          mirror: null,
         },
         extrude: null,
         sketchSelection: [],
@@ -827,7 +891,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
       // Either way the Distance/Dimension and Modify tools no longer own the sketch.
       set({
-        sketch: { ...session, tool, toolState, dimension: null, modify: null, fillet: null },
+        sketch: { ...session, tool, toolState, dimension: null, modify: null, fillet: null, mirror: null },
         ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
     },
@@ -979,7 +1043,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         ? { phase: 'awaiting', pointA: resolved.pointA, pointB: resolved.pointB, measured: resolved.measured }
         : { phase: 'picking', points: [] };
       set({
-        sketch: { ...session, tool: null, toolState: null, dimension, modify: null, fillet: null },
+        sketch: { ...session, tool: null, toolState: null, dimension, modify: null, fillet: null, mirror: null },
         sketchSelection: [],
         selectedConstraintId: null,
       });
@@ -1215,6 +1279,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           toolState: null,
           dimension: null,
           fillet: null,
+          mirror: null,
           modify: next ? { tool: next, point: session.modify?.point ?? null, note: null } : null,
         },
         ...(next ? { sketchSelection: [], selectedConstraintId: null } : {}),
@@ -1286,7 +1351,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         }
       }
       set({
-        sketch: { ...session, tool: null, toolState: null, dimension: null, modify: null, fillet },
+        sketch: { ...session, tool: null, toolState: null, dimension: null, modify: null, fillet, mirror: null },
         sketchSelection: [],
         selectedConstraintId: null,
       });
@@ -1374,6 +1439,143 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         return;
       }
       set({ sketch: { ...session, fillet: null } });
+    },
+
+    startMirror: () => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch) return;
+      // Pressing the tool again while active toggles it off, back to selection.
+      if (session.mirror) {
+        set({ sketch: { ...session, mirror: null } });
+        return;
+      }
+      const selected = state.sketchSelection.filter((id) => sketch.entities.some((entity) => entity.id === id));
+      const lineIds = selected.filter((id) =>
+        sketch.entities.some((entity) => entity.id === id && entity.kind === 'line'),
+      );
+      let mirror: MirrorState;
+      if (selected.length >= 2 && lineIds.length === 1) {
+        // Sources plus exactly one line → unambiguous: the line is the axis, the rest are sources.
+        const axisId = lineIds[0]!;
+        mirror = { phase: 'confirm', sourceIds: selected.filter((id) => id !== axisId), axisId, note: null };
+      } else if (selected.length >= 1) {
+        // Sources known; collect the axis. A small contextual note when multiple lines are ambiguous.
+        const note = lineIds.length >= 2 ? 'Multiple lines selected — click the line to use as the mirror axis.' : null;
+        mirror = { phase: 'axis', sourceIds: selected, hover: null, note };
+      } else {
+        mirror = { phase: 'sources', sourceIds: [], hover: null, note: null };
+      }
+      set({
+        sketch: { ...session, tool: null, toolState: null, dimension: null, modify: null, fillet: null, mirror },
+        sketchSelection: [],
+        selectedConstraintId: null,
+      });
+    },
+
+    mirrorToggleSource: (id) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.mirror?.phase !== 'sources') return;
+      const entity = sketch.entities.find((candidate) => candidate.id === id);
+      if (!entity) return;
+      if (entity.kind !== 'point' && entity.kind !== 'line' && entity.kind !== 'circle' && entity.kind !== 'arc') return;
+      const sourceIds = session.mirror.sourceIds.includes(id)
+        ? session.mirror.sourceIds.filter((existing) => existing !== id)
+        : [...session.mirror.sourceIds, id];
+      set({ sketch: { ...session, mirror: { ...session.mirror, sourceIds, note: null } } });
+    },
+
+    mirrorChooseAxis: () => {
+      const session = get().sketch;
+      if (!session || session.mirror?.phase !== 'sources' || session.mirror.sourceIds.length === 0) return;
+      set({
+        sketch: { ...session, mirror: { phase: 'axis', sourceIds: session.mirror.sourceIds, hover: null, note: null } },
+      });
+    },
+
+    mirrorHover: (point) => {
+      const session = get().sketch;
+      if (!session || !session.mirror || session.mirror.phase === 'confirm') return;
+      set({ sketch: { ...session, mirror: { ...session.mirror, hover: point } } });
+    },
+
+    mirrorPickAxis: (point) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.mirror?.phase !== 'axis') return;
+      const axisId = pickMirrorAxis(sketch, [point.x, point.y]);
+      if (!axisId) return;
+      const sourceIds = session.mirror.sourceIds.filter((id) => id !== axisId);
+      if (sourceIds.length === 0) {
+        // The picked line is the only selected entity: keep collecting rather than strand the user with no sources.
+        set({
+          sketch: {
+            ...session,
+            mirror: { ...session.mirror, note: 'Pick an axis line that is not the only selected entity.' },
+          },
+        });
+        return;
+      }
+      set({ sketch: { ...session, mirror: { phase: 'confirm', sourceIds, axisId, note: null } } });
+    },
+
+    confirmMirror: () => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !sketch || session.mirror?.phase !== 'confirm') {
+        return { applied: false, reason: 'not-ready', message: 'No mirror is awaiting confirmation.' };
+      }
+      const computed = computeMirror(sketch, session.mirror.sourceIds, session.mirror.axisId);
+      if (!computed.ok) {
+        return { applied: false, reason: 'invalid', message: computed.message };
+      }
+      const edit = applyMirror(sketch, computed.resolution, createId);
+      const candidate: SketchFeature = { ...sketch, entities: edit.entities, constraints: edit.constraints };
+      const nextHistory = applyCommandToHistory(state.history, {
+        type: 'feature.update',
+        id: sketch.id,
+        patch: { entities: edit.entities, constraints: edit.constraints },
+      });
+      const skipped = edit.skippedConstraintCount;
+      const note =
+        skipped > 0 ? `Skipped ${skipped} source constraint${skipped === 1 ? '' : 's'} that could not be mirrored.` : null;
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        // Persistent tool: return to the source collector for the next mirror, announcing any report.
+        sketch: { ...session, mirror: { phase: 'sources', sourceIds: [], hover: null, note } },
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
+      });
+      return { applied: true, reason: 'applied', message: note };
+    },
+
+    cancelMirror: () => {
+      const session = get().sketch;
+      if (!session || !session.mirror) return;
+      const mirror = session.mirror;
+      // Layered cancel: confirm → axis, axis → sources, a non-empty source set → cleared, empty → exit the tool.
+      if (mirror.phase === 'confirm') {
+        set({ sketch: { ...session, mirror: { phase: 'axis', sourceIds: mirror.sourceIds, hover: null, note: null } } });
+        return;
+      }
+      if (mirror.phase === 'axis') {
+        set({ sketch: { ...session, mirror: { phase: 'sources', sourceIds: mirror.sourceIds, hover: null, note: null } } });
+        return;
+      }
+      if (mirror.sourceIds.length > 0) {
+        set({ sketch: { ...session, mirror: { phase: 'sources', sourceIds: [], hover: null, note: null } } });
+        return;
+      }
+      set({ sketch: { ...session, mirror: null } });
     },
 
     finishSketch: () => {

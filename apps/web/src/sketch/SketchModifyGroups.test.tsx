@@ -69,4 +69,16 @@ describe('SketchModifyGroups', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Trim' }));
     expect(store.getState().sketch?.modify).toBeNull();
   });
+
+  it('exposes an accessible Mirror button with the M shortcut that toggles the tool', () => {
+    const store = renderGroups();
+    const mirror = screen.getByRole('button', { name: 'Mirror' });
+    expect(mirror).toHaveAttribute('aria-keyshortcuts', 'M');
+    expect(mirror).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(mirror);
+    expect(store.getState().sketch?.mirror).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Mirror' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Mirror' }));
+    expect(store.getState().sketch?.mirror).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-import { ArrowRightToLine, ChevronDown, Scissors, SquareRoundCorner, Split } from 'lucide-react';
+import { ArrowRightToLine, ChevronDown, FlipHorizontal2, Scissors, SquareRoundCorner, Split } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../components/ui/IconButton.js';
@@ -44,6 +44,7 @@ export function SketchModifyGroups() {
   const session = useCadStore((state) => state.sketch);
   const setSketchModifyTool = useCadStore((state) => state.setSketchModifyTool);
   const startFillet = useCadStore((state) => state.startFillet);
+  const startMirror = useCadStore((state) => state.startMirror);
   const [lastTool, setLastTool] = useState<ModifyTool>('trim');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,7 @@ export function SketchModifyGroups() {
 
   const activeTool = session.modify?.tool ?? null;
   const filletActive = session.fillet != null;
+  const mirrorActive = session.mirror != null;
   const primary = MODIFY_VARIANTS.find((variant) => variant.tool === lastTool) ?? MODIFY_VARIANTS[0]!;
 
   const select = (tool: ModifyTool): void => {
@@ -124,6 +126,15 @@ export function SketchModifyGroups() {
           aria-keyshortcuts="F"
           icon={iconNode(SquareRoundCorner)}
           onClick={() => startFillet()}
+        />
+      </Tooltip>
+      <Tooltip content="Mirror (M) — Reflect points, lines, circles, and arcs across a sketch line">
+        <IconButton
+          aria-label="Mirror"
+          aria-pressed={mirrorActive}
+          aria-keyshortcuts="M"
+          icon={iconNode(FlipHorizontal2)}
+          onClick={() => startMirror()}
         />
       </Tooltip>
     </div>

@@ -4,6 +4,7 @@ import { IconButton } from '../components/ui/IconButton.js';
 import { Separator } from '../components/ui/Separator.js';
 import { Tooltip } from '../components/ui/Tooltip.js';
 import { ConstraintToolbar } from './ConstraintToolbar.js';
+import { MirrorPanel } from './MirrorPanel.js';
 import { SketchModifyGroups } from './SketchModifyGroups.js';
 import { SketchOverlay } from './SketchOverlay.js';
 import { SketchToolGroups } from './SketchToolGroups.js';
@@ -56,6 +57,7 @@ export function SketchWorkspace() {
       </div>
       <div className="sketch-workspace__canvas">
         <SketchOverlay />
+        <MirrorPanel />
       </div>
     </section>
   );
