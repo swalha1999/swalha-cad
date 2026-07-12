@@ -1,10 +1,13 @@
 import type { CadDocumentV2, ExtrudeFeature, Primitive, SketchFeature, Transform } from '@swalha-cad/document';
 import { buildPrimitiveMesh } from '../build-primitive-mesh.js';
-import { transformPointBy } from '../math/transform.js';
+import { buildPrimitiveFaces } from '../primitives/primitive-faces.js';
+import { transformNormalBy, transformPointBy } from '../math/transform.js';
 import type { Vec3 } from '../math/vec3.js';
-import type { IndexedMesh } from '../mesh.js';
+import type { EvaluatedFace, IndexedMesh } from '../mesh.js';
 import { getPosition, vertexCount } from '../mesh.js';
 import type { MeshBounds } from '../mesh-validation.js';
+import { buildFaceFrame } from '../sketch/face-frame.js';
+import { getPlaneFrame, type PlaneFrame } from '../sketch/plane.js';
 import type { TopologyIssue } from '../sketch/topology.js';
 import { extrudeSketch } from './extrude.js';
 
@@ -32,9 +35,29 @@ export interface EvaluatedBody {
   readonly visible: boolean;
   readonly buildKey: string;
   readonly geometry: EvaluatedBodyGeometry;
+  /**
+   * Semantic faces of this body's mesh, in the body's own geometry space (model
+   * space for a primitive — before its transform — or world space for a derived
+   * mesh, whose transform is the identity). Empty when a body has no face
+   * provenance (e.g. an L-bracket, currently out of scope). See
+   * {@link resolveFaceFrame} to turn one into a world-space sketch frame.
+   */
+  readonly faces: readonly EvaluatedFace[];
 }
 
-export type EvaluationDiagnosticCode = 'missing-sketch' | 'invalid-profile' | 'degenerate-profile' | 'invalid-depth';
+export type EvaluationDiagnosticCode =
+  | 'missing-sketch'
+  | 'invalid-profile'
+  | 'degenerate-profile'
+  | 'invalid-depth'
+  | 'missing-face';
+
+/** Why a stored planar-face reference could not be resolved against the current evaluated document. */
+export type FaceFrameError = 'unknown-body' | 'unknown-face' | 'not-planar';
+
+export type FaceFrameResult =
+  | { readonly ok: true; readonly frame: PlaneFrame }
+  | { readonly ok: false; readonly reason: FaceFrameError };
 
 /** A structured reason a feature produced no body, replacing any stale geometry it previously had. */
 export interface EvaluationDiagnostic {
@@ -59,26 +82,52 @@ function primitiveBody(id: string, name: string, visible: boolean, primitive: Pr
     // deliberately excluded from the key: a moved primitive reuses its mesh.
     buildKey: `primitive:${JSON.stringify(primitive)}`,
     geometry: { kind: 'primitive', primitive, transform },
+    faces: buildPrimitiveFaces(primitive),
   };
 }
 
-function extrudeBody(feature: ExtrudeFeature, sketch: SketchFeature, mesh: IndexedMesh): EvaluatedBody {
+function extrudeBody(
+  feature: ExtrudeFeature,
+  sketch: SketchFeature,
+  mesh: IndexedMesh,
+  faces: readonly EvaluatedFace[],
+  frame: PlaneFrame,
+): EvaluatedBody {
   return {
     id: feature.id,
     name: feature.name,
     visible: true,
-    // Everything the derived mesh depends on: the plane and geometry of the
-    // resolved sketch plus this feature's sweep. Constraints are not included —
-    // the solver has already baked its result into the stored point coordinates.
+    // Everything the derived mesh depends on: the resolved support frame and
+    // geometry of the sketch plus this feature's sweep. Constraints are not
+    // included — the solver has already baked its result into the point
+    // coordinates. The frame (not just the plane name) is keyed so a face-
+    // supported sketch rebuilds when its parent face moves.
     buildKey: `extrude:${JSON.stringify({
-      plane: sketch.plane,
+      frame,
       entities: sketch.entities,
       depth: feature.depth,
       direction: feature.direction,
       reverse: feature.reverse ?? false,
     })}`,
     geometry: { kind: 'mesh', mesh },
+    faces,
   };
+}
+
+/**
+ * Resolves one of a body's planar faces into a world-space {@link PlaneFrame}: a
+ * primitive's model-space face is carried through its transform; a derived mesh
+ * body's face is already world-space. Non-planar or unknown faces return a
+ * structured reason instead of a frame.
+ */
+export function evaluatedFaceFrame(body: EvaluatedBody, faceId: string): FaceFrameResult {
+  const face = body.faces.find((candidate) => candidate.id === faceId);
+  if (!face) return { ok: false, reason: 'unknown-face' };
+  if (!face.planar) return { ok: false, reason: 'not-planar' };
+  const transform = body.geometry.kind === 'primitive' ? body.geometry.transform : null;
+  const origin = transform ? transformPointBy(transform, face.origin) : face.origin;
+  const normal = transform ? transformNormalBy(transform, face.normal) : face.normal;
+  return { ok: true, frame: buildFaceFrame(origin, normal) };
 }
 
 function diagnostic(
@@ -113,12 +162,38 @@ function diagnostic(
  * changes the affected body's `buildKey` and rebuilds its mesh, while an
  * unrelated edit (a moved primitive, a renamed feature) leaves keys intact.
  */
+const FACE_FRAME_REASON: Record<FaceFrameError, string> = {
+  'unknown-body': 'the referenced body no longer exists',
+  'unknown-face': 'the referenced face no longer exists',
+  'not-planar': 'the referenced face is not planar',
+};
+
+/**
+ * Resolves a face-supported sketch's support frame from the bodies evaluated so
+ * far (in document order the parent body always precedes the downstream sketch's
+ * extrude). A missing body, missing face, or non-planar face returns a
+ * structured reason so the caller emits a diagnostic rather than silently
+ * reattaching to a different face.
+ */
+function resolveSupportFrame(sketch: SketchFeature, bodyById: Map<string, EvaluatedBody>): FaceFrameResult {
+  if (!sketch.face) return { ok: true, frame: getPlaneFrame(sketch.plane) };
+  const parent = bodyById.get(sketch.face.bodyId);
+  if (!parent) return { ok: false, reason: 'unknown-body' };
+  return evaluatedFaceFrame(parent, sketch.face.faceId);
+}
+
 export function evaluateDocument(document: CadDocumentV2): EvaluatedDocument {
   const bodies: EvaluatedBody[] = [];
   const diagnostics: EvaluationDiagnostic[] = [];
+  const bodyById = new Map<string, EvaluatedBody>();
+
+  const push = (body: EvaluatedBody): void => {
+    bodies.push(body);
+    bodyById.set(body.id, body);
+  };
 
   for (const entity of document.entities) {
-    bodies.push(primitiveBody(entity.id, entity.name, entity.visible, entity.primitive, entity.transform));
+    push(primitiveBody(entity.id, entity.name, entity.visible, entity.primitive, entity.transform));
   }
 
   const sketches = new Map<string, SketchFeature>();
@@ -138,20 +213,47 @@ export function evaluateDocument(document: CadDocumentV2): EvaluatedDocument {
       continue;
     }
 
+    const support = resolveSupportFrame(sketch, bodyById);
+    if (!support.ok) {
+      diagnostics.push(
+        diagnostic(
+          feature,
+          'missing-face',
+          `Extrude "${feature.name}" is built on a face of sketch "${sketch.name}" that could not be resolved: ${FACE_FRAME_REASON[support.reason]}.`,
+        ),
+      );
+      continue;
+    }
+
     const result = extrudeSketch(sketch, {
       depth: feature.depth,
       direction: feature.direction,
       reverse: feature.reverse ?? false,
+      frame: support.frame,
     });
     if (!result.ok) {
       diagnostics.push(diagnostic(feature, result.error.code, result.error.message, result.error.issues));
       continue;
     }
 
-    bodies.push(extrudeBody(feature, sketch, result.mesh));
+    push(extrudeBody(feature, sketch, result.mesh, result.faces, support.frame));
   }
 
   return { bodies, diagnostics };
+}
+
+/**
+ * Resolves a stored planar-face reference (a body id + semantic face id) into a
+ * world-space sketch {@link PlaneFrame} by evaluating `document`. Returns a
+ * structured reason — never a fallback frame — when the body or face is gone or
+ * the face is curved, so a broken reference is surfaced explicitly rather than
+ * silently reattaching to another face.
+ */
+export function resolveFaceFrame(document: CadDocumentV2, bodyId: string, faceId: string): FaceFrameResult {
+  const evaluated = evaluateDocument(document);
+  const body = evaluated.bodies.find((candidate) => candidate.id === bodyId);
+  if (!body) return { ok: false, reason: 'unknown-body' };
+  return evaluatedFaceFrame(body, faceId);
 }
 
 function worldVertex(body: EvaluatedBody, mesh: IndexedMesh, vertexIndex: number): Vec3 {

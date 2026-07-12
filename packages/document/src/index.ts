@@ -8,6 +8,7 @@ export type {
   SketchPlane,
   SketchEntity,
   SketchConstraint,
+  SketchFaceSupport,
   SketchFeature,
   ExtrudeFeature,
   CadFeature,

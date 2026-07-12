@@ -1,5 +1,5 @@
 import type { CadDocumentV2, Transform } from '@swalha-cad/document';
-import type { EvaluatedBody, MeshBounds } from '@swalha-cad/geometry';
+import type { EvaluatedBody, EvaluatedFace, MeshBounds } from '@swalha-cad/geometry';
 import { buildPrimitiveMesh, evaluateDocument, evaluatedWorldBounds } from '@swalha-cad/geometry';
 import type { BufferGeometry, Material } from 'three';
 import { FrontSide, MathUtils, Mesh, MeshStandardMaterial, Scene } from 'three';
@@ -8,6 +8,7 @@ import { createBufferGeometry } from './mesh-adapter.js';
 interface SyncedBody {
   readonly object: Mesh;
   readonly buildKey: string;
+  readonly faces: readonly EvaluatedFace[];
 }
 
 /** New materials are created with depth testing and back-face culling explicit, not left to Three.js defaults. */
@@ -89,6 +90,11 @@ export class SceneSync {
     return this.synced.get(bodyId)?.object;
   }
 
+  /** Semantic face provenance of a synced body's mesh (empty for bodies without faces), for face picking/highlighting. */
+  facesFor(bodyId: string): readonly EvaluatedFace[] {
+    return this.synced.get(bodyId)?.faces ?? [];
+  }
+
   /** World-space bounds of the last synced document's visible bodies, or `null` when nothing visible was drawn. */
   worldBounds(): MeshBounds | null {
     return this.lastBounds;
@@ -116,13 +122,17 @@ export class SceneSync {
     if (!synced) {
       const object = new Mesh(buildGeometryForBody(body), createEntityMaterial());
       this.scene.add(object);
-      synced = { object, buildKey: body.buildKey };
+      synced = { object, buildKey: body.buildKey, faces: body.faces };
       this.synced.set(body.id, synced);
     } else if (synced.buildKey !== body.buildKey) {
       const oldGeometry = synced.object.geometry;
       synced.object.geometry = buildGeometryForBody(body);
       oldGeometry.dispose();
-      synced = { object: synced.object, buildKey: body.buildKey };
+      synced = { object: synced.object, buildKey: body.buildKey, faces: body.faces };
+      this.synced.set(body.id, synced);
+    } else if (synced.faces !== body.faces) {
+      // Geometry unchanged but faces recomputed (a fresh evaluation): refresh the provenance.
+      synced = { object: synced.object, buildKey: synced.buildKey, faces: body.faces };
       this.synced.set(body.id, synced);
     }
 

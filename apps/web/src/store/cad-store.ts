@@ -10,6 +10,7 @@ import type {
   ExtrudeFeature,
   Primitive,
   SketchConstraint,
+  SketchFaceSupport,
   SketchFeature,
   SketchPlane,
   Transform,
@@ -24,8 +25,8 @@ import {
   redo as historyRedo,
   undo as historyUndo,
 } from '@swalha-cad/document';
-import type { SolveDiagnostic, SolveStatus } from '@swalha-cad/geometry';
-import { solveSketch } from '@swalha-cad/geometry';
+import type { SolveDiagnostic, SolveStatus, Vec3 } from '@swalha-cad/geometry';
+import { resolveFaceFrame, solveSketch } from '@swalha-cad/geometry';
 import { createStore } from 'zustand/vanilla';
 import { buildSketchUpdateCommand } from '../sketch/commit.js';
 import { applyConstructionToggle } from '../sketch/construction.js';
@@ -204,6 +205,17 @@ export interface ConstraintOutcome {
   message: string | null;
 }
 
+/** The result of attempting to enter a sketch on a planar face, so a caller can surface a diagnostic. */
+export interface FaceSketchOutcome {
+  /** True when a face sketch was created and entered. */
+  entered: boolean;
+  reason: 'entered' | 'not-planar' | 'unknown' | 'busy';
+  /** The created sketch feature's id when entered, else `null`. */
+  featureId: string | null;
+  /** A human-readable diagnostic when rejected, else `null`. */
+  message: string | null;
+}
+
 /** The result of confirming an extrude task, for callers that surface a message. */
 export interface ExtrudeOutcome {
   /** True when exactly one feature command reached history; false when validation rejected it. */
@@ -236,6 +248,26 @@ export interface CadStoreState {
   canRedo: boolean;
   /** Non-null while the focused 2D sketch workspace is active. */
   sketch: SketchSession | null;
+  /**
+   * The planar face currently under the pointer in the 3D viewport, for face
+   * prehighlight; distinct from {@link hoveredId} (whole-body hover). Transient
+   * feedback, never routed through history.
+   */
+  hoveredFace: SketchFaceSupport | null;
+  /**
+   * The face the user has picked as a candidate sketch support (the preselect-
+   * then-Sketch workflow). Cross-highlighted with its owning body. Cleared when
+   * entering a sketch or when its owning body vanishes.
+   */
+  selectedFace: SketchFaceSupport | null;
+  /**
+   * True while the Sketch action is armed and waiting for the user to click a
+   * face (the Sketch-then-face workflow): the model dims and the next face click
+   * enters a sketch on it.
+   */
+  faceSketchArmed: boolean;
+  /** The most recent face-sketch rejection message (curved/unknown face), or `null`. Surfaced then dismissed. */
+  faceSketchError: string | null;
   /**
    * Non-null while the contextual Extrude task panel is open (creating or
    * editing an extrusion). Purely transient: the document is not mutated until
@@ -286,6 +318,27 @@ export interface CadStoreState {
   redo: () => void;
   /** Creates a `SketchFeature` on `plane` through history and enters sketch mode; returns its id. */
   enterSketch: (plane: SketchPlane) => string;
+  /** Sets (or clears) the planar face under the pointer for prehighlight. */
+  setHoveredFace: (face: SketchFaceSupport | null) => void;
+  /** Records (or clears) the picked candidate face and cross-selects its owning body. */
+  selectFace: (face: SketchFaceSupport | null) => void;
+  /**
+   * The Sketch-on-face entry point: if a planar face is already selected, enters
+   * a sketch on it immediately (preselect workflow); otherwise arms the viewport
+   * to wait for a face click (command-then-face workflow). Rejects a curved or
+   * missing preselected face with a diagnostic and no state change.
+   */
+  startFaceSketch: () => FaceSketchOutcome;
+  /**
+   * Creates a face-supported `SketchFeature` through history and enters sketch
+   * mode, re-resolving the face's frame to reject a curved/unknown face with a
+   * diagnostic (mutating nothing). Used by both entry workflows.
+   */
+  enterSketchOnFace: (face: SketchFaceSupport) => FaceSketchOutcome;
+  /** Arms (or disarms) the Sketch-on-face wait state without entering a sketch. */
+  setFaceSketchArmed: (armed: boolean) => void;
+  /** Clears the most recent face-sketch rejection message. */
+  dismissFaceSketchError: () => void;
   /** Selects (or clears with `null`) the active drawing tool, resetting its pending step. */
   setSketchTool: (tool: SketchToolKind | null) => void;
   /** Toggles whether newly drawn geometry is construction geometry. */
@@ -490,6 +543,23 @@ function nextFeatureName(features: readonly CadFeature[], base: string): string 
   return `${base} ${suffix}`;
 }
 
+/** The principal origin plane whose normal is closest to a face normal, stored as an orientation hint on a face sketch. */
+function nearestPrincipalPlane(normal: Vec3): SketchPlane {
+  const [nx, ny, nz] = [Math.abs(normal[0]), Math.abs(normal[1]), Math.abs(normal[2])];
+  if (nz >= nx && nz >= ny) return 'XY';
+  if (ny >= nx) return 'XZ';
+  return 'YZ';
+}
+
+/** Drops a face reference whose owning body is no longer present in the document (e.g. after an undo or delete). */
+function reconcileFace(document: CadDocumentV2, face: SketchFaceSupport | null): SketchFaceSupport | null {
+  if (!face) return null;
+  const present =
+    document.entities.some((entity) => entity.id === face.bodyId) ||
+    document.features.some((feature) => feature.id === face.bodyId);
+  return present ? face : null;
+}
+
 /** Drops a selection that no longer refers to an entity in the document, e.g. after an undo. */
 function reconcileSelection(document: CadDocumentV2, selectedEntityId: string | null): string | null {
   if (selectedEntityId === null) return null;
@@ -662,6 +732,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
         selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
         hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        selectedFace: reconcileFace(nextHistory.present, state.selectedFace),
+        hoveredFace: reconcileFace(nextHistory.present, state.hoveredFace),
         pendingDeletion: null,
       });
     }
@@ -677,6 +749,10 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     canUndo: false,
     canRedo: false,
     sketch: null,
+    hoveredFace: null,
+    selectedFace: null,
+    faceSketchArmed: false,
+    faceSketchError: null,
     extrude: null,
     sketchSelection: [],
     selectedConstraintId: null,
@@ -688,14 +764,14 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       if (id !== null && !get().document.entities.some((entity) => entity.id === id)) {
         return;
       }
-      set({ selectedEntityId: id, selectedFeatureId: null });
+      set({ selectedEntityId: id, selectedFeatureId: null, selectedFace: null });
     },
 
     selectFeature: (id) => {
       if (id !== null && !get().document.features.some((feature) => feature.id === id)) {
         return;
       }
-      set({ selectedFeatureId: id, selectedEntityId: null });
+      set({ selectedFeatureId: id, selectedEntityId: null, selectedFace: null });
     },
 
     selectBody: (bodyId) => {
@@ -712,7 +788,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       }
     },
 
-    clearSelection: () => set({ selectedEntityId: null, selectedFeatureId: null }),
+    clearSelection: () => set({ selectedEntityId: null, selectedFeatureId: null, selectedFace: null }),
 
     setHovered: (id) => set({ hoveredId: id }),
 
@@ -794,6 +870,10 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         hoveredId: null,
         pendingDeletion: null,
         sketch: null,
+        hoveredFace: null,
+        selectedFace: null,
+        faceSketchArmed: false,
+        faceSketchError: null,
         extrude: null,
         sketchSelection: [],
         selectedConstraintId: null,
@@ -813,6 +893,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
         selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
         hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        selectedFace: reconcileFace(nextHistory.present, state.selectedFace),
+        hoveredFace: reconcileFace(nextHistory.present, state.hoveredFace),
         pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
         ...reconcileExtrudeAfterHistory(state, nextHistory.present),
@@ -831,6 +913,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: reconcileSelection(nextHistory.present, state.selectedEntityId),
         selectedFeatureId: reconcileFeatureSelection(nextHistory.present, state.selectedFeatureId),
         hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
+        selectedFace: reconcileFace(nextHistory.present, state.selectedFace),
+        hoveredFace: reconcileFace(nextHistory.present, state.hoveredFace),
         pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
         ...reconcileExtrudeAfterHistory(state, nextHistory.present),
@@ -856,6 +940,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         selectedEntityId: null,
+        selectedFeatureId: null,
         // Look orthographically straight down the plane normal for a true 2D workspace.
         cameraProjection: 'orthographic',
         sketch: {
@@ -873,11 +958,110 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           mirror: null,
         },
         extrude: null,
+        hoveredFace: null,
+        selectedFace: null,
+        faceSketchArmed: false,
+        faceSketchError: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
       });
       return featureId;
+    },
+
+    setHoveredFace: (face) => set({ hoveredFace: face }),
+
+    selectFace: (face) => {
+      if (face === null) {
+        set({ selectedFace: null });
+        return;
+      }
+      // Cross-highlight the owning body so selecting a face also selects its feature/entity.
+      get().selectBody(face.bodyId);
+      set({ selectedFace: face, faceSketchError: null });
+    },
+
+    setFaceSketchArmed: (armed) => set({ faceSketchArmed: armed, faceSketchError: null }),
+
+    dismissFaceSketchError: () => set({ faceSketchError: null }),
+
+    startFaceSketch: () => {
+      const state = get();
+      if (state.sketch || state.extrude) {
+        return { entered: false, reason: 'busy', featureId: null, message: 'Finish the current operation first.' };
+      }
+      // Preselected face → enter directly; a rejection surfaces its diagnostic.
+      if (state.selectedFace) {
+        const outcome = get().enterSketchOnFace(state.selectedFace);
+        if (outcome.entered) return outcome;
+        // Curved/missing preselected face: arm so the user can pick another, keeping the diagnostic.
+        set({ faceSketchArmed: true });
+        return outcome;
+      }
+      // No preselection → arm and wait for a face click.
+      set({ faceSketchArmed: true, faceSketchError: null });
+      return { entered: false, reason: 'entered', featureId: null, message: null };
+    },
+
+    enterSketchOnFace: (face) => {
+      const state = get();
+      if (state.sketch || state.extrude) {
+        return { entered: false, reason: 'busy', featureId: null, message: 'Finish the current operation first.' };
+      }
+      const resolved = resolveFaceFrame(state.document, face.bodyId, face.faceId);
+      if (!resolved.ok) {
+        const message =
+          resolved.reason === 'not-planar'
+            ? 'That face is curved — sketches can only be placed on flat faces.'
+            : 'That face is no longer available.';
+        set({ faceSketchError: message });
+        return { entered: false, reason: resolved.reason === 'not-planar' ? 'not-planar' : 'unknown', featureId: null, message };
+      }
+
+      const featureId = createId();
+      const feature: SketchFeature = {
+        id: featureId,
+        kind: 'sketch',
+        name: nextFeatureName(state.document.features, 'Sketch'),
+        plane: nearestPrincipalPlane(resolved.frame.normal),
+        face,
+        entities: [],
+        constraints: [],
+        visible: true,
+      };
+      const nextHistory = applyCommandToHistory(state.history, { type: 'feature.create', feature });
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        selectedEntityId: null,
+        selectedFeatureId: null,
+        cameraProjection: 'orthographic',
+        sketch: {
+          featureId,
+          plane: feature.plane,
+          tool: null,
+          toolState: null,
+          construction: false,
+          polygonSides: DEFAULT_POLYGON_SIDES,
+          cursor: null,
+          cursorSnap: null,
+          dimension: null,
+          modify: null,
+          fillet: null,
+          mirror: null,
+        },
+        extrude: null,
+        hoveredFace: null,
+        selectedFace: null,
+        faceSketchArmed: false,
+        faceSketchError: null,
+        sketchSelection: [],
+        selectedConstraintId: null,
+        sketchSolve: computeSketchSolve(feature),
+      });
+      return { entered: true, reason: 'entered', featureId, message: null };
     },
 
     setSketchTool: (tool) => {
@@ -1583,6 +1767,10 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       set({
         sketch: null,
         cameraProjection: 'perspective',
+        hoveredFace: null,
+        selectedFace: null,
+        faceSketchArmed: false,
+        faceSketchError: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: null,
@@ -1619,6 +1807,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         extrude: { editingFeatureId: null, sketchId: sourceId, depth: DEFAULT_EXTRUDE_DEPTH, direction: 'normal', reverse: false },
         selectedEntityId: null,
         selectedFeatureId: null,
+        selectedFace: null,
+        faceSketchArmed: false,
       });
     },
 

@@ -7,17 +7,46 @@ import {
   resizeOrthographicCamera,
   resizePerspectiveCamera,
 } from '@swalha-cad/renderer';
-import type { Material, Mesh, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, Scene } from 'three';
-import { AmbientLight, DirectionalLight, GridHelper, Vector3 } from 'three';
+import type { Material, MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, Scene } from 'three';
+import {
+  AmbientLight,
+  BufferAttribute,
+  BufferGeometry,
+  DirectionalLight,
+  DoubleSide,
+  GridHelper,
+  Mesh,
+  MeshBasicMaterial,
+  Vector3,
+} from 'three';
 import type { CameraProjection } from '../store/cad-store.js';
 import { createOrbitControls } from './create-orbit-controls.js';
 import { createRenderer } from './create-renderer.js';
 import { createTransformControls } from './create-transform-controls.js';
+import { faceOverlayPositions } from './face-overlay.js';
 import { isClick } from './is-click.js';
 import { pickEntityId } from './pick-entity.js';
+import type { FacePick } from './pick-face.js';
+import { pickFace } from './pick-face.js';
 import { transformFromObject } from './transform-from-object.js';
 
 export type StandardView = 'front' | 'top' | 'right' | 'home';
+
+/**
+ * How the viewport interprets pointer input against the model's faces:
+ * `off` — whole-body selection only (default Part Studio picking is `hover`);
+ * `hover` — prehighlight the face under the pointer and select body + face on
+ * click (the preselect-then-Sketch workflow); `armed` — dim the model and the
+ * next face click enters a sketch on it (the Sketch-then-face workflow).
+ */
+export type FacePickMode = 'off' | 'hover' | 'armed';
+
+/** A support frame for aligning the camera normal-to-face when a face sketch begins. */
+export interface FaceAlignFrame {
+  origin: readonly [number, number, number];
+  normal: readonly [number, number, number];
+  yAxis: readonly [number, number, number];
+}
 
 export interface ViewportSceneOptions {
   canvas: HTMLCanvasElement;
@@ -31,6 +60,12 @@ export interface ViewportSceneOptions {
   onTransformChange: (entityId: string, transform: Transform) => void;
   /** Optional: called when the hovered body changes (id or `null`), for tree/viewport hover sync. */
   onHover?: (bodyId: string | null) => void;
+  /** Optional: called when the prehighlighted face under the pointer changes (or `null`), in `hover`/`armed` mode. */
+  onFaceHover?: (pick: FacePick | null) => void;
+  /** Optional: called when a face is clicked in `hover` mode (preselect-then-Sketch). */
+  onFaceSelect?: (pick: FacePick) => void;
+  /** Optional: called when a face is clicked in `armed` mode (Sketch-then-face), to enter a sketch on it. */
+  onArmedFaceClick?: (pick: FacePick) => void;
 }
 
 export interface ViewportScene {
@@ -40,6 +75,18 @@ export interface ViewportScene {
   setSelection(bodyId: string | null): void;
   /** Applies the softer hover highlight to the given body id (or clears it with `null`). */
   setHover(bodyId: string | null): void;
+  /** Sets how pointer input is interpreted against model faces (see {@link FacePickMode}). */
+  setFacePickMode(mode: FacePickMode): void;
+  /** Highlights the given selected face distinctly from whole-body selection (or clears it with `null`). */
+  setSelectedFace(pick: FacePick | null): void;
+  /** Dims every body's material (or restores full opacity) so a sketch/face-pick context reads as focused. */
+  setModelDimmed(dimmed: boolean): void;
+  /** Orients the camera to look straight down a face's normal at its origin (used when a face sketch begins). */
+  alignCameraToFace(frame: FaceAlignFrame): void;
+  /** Snapshots the current camera pose so {@link restoreCamera} can return to it after a sketch. */
+  snapshotCamera(): void;
+  /** Restores the camera pose captured by {@link snapshotCamera} (no-op if none captured). */
+  restoreCamera(): void;
   setProjection(projection: CameraProjection): void;
   resize(viewport: Viewport): void;
   setStandardView(view: StandardView): void;
@@ -50,6 +97,11 @@ export interface ViewportScene {
 const HIGHLIGHT_EMISSIVE_HEX = 0x3b5bfd;
 const HOVER_EMISSIVE_HEX = 0x22357a;
 const NO_HIGHLIGHT_HEX = 0x000000;
+/** Face overlay tints, deliberately brighter than the whole-body emissive so a face reads as distinct from body selection. */
+const FACE_HOVER_HEX = 0x5b8cff;
+const FACE_SELECT_HEX = 0x2f6bff;
+/** Opacity applied to every body's material while the model is dimmed (armed face pick or an active sketch). */
+const DIMMED_OPACITY = 0.3;
 const DEFAULT_CAMERA_POSITION = [140, 110, 160] as const;
 const DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT = 220;
 
@@ -144,11 +196,91 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     }
   });
 
-  /** Tags every body mesh (entity or derived feature body) with its id so raycasting can identify it. */
+  let facePickMode: FacePickMode = 'off';
+  let modelDimmed = false;
+  let currentHoveredFace: FacePick | null = null;
+  let currentSelectedFace: FacePick | null = null;
+  // One reusable overlay mesh per slot; built lazily, always removed on dispose.
+  const faceOverlays = new Map<'hover' | 'select', Mesh>();
+  let cameraSnapshot: { position: Vector3; up: Vector3; target: Vector3 } | null = null;
+
+  /**
+   * Tags every body mesh (entity or derived feature body) with its id and a
+   * triangle→face-id lookup so raycasting can identify both the body and the
+   * exact semantic face under the pointer without storing transient face indices.
+   */
   function tagBodyIds(): void {
     forEachBody((id, object) => {
       object.userData['entityId'] = id;
+      const faces = sceneSync.facesFor(id);
+      if (faces.length === 0) {
+        delete object.userData['faceOfTriangle'];
+        return;
+      }
+      const faceOfTriangle: string[] = [];
+      for (const face of faces) {
+        for (const triangle of face.triangles) faceOfTriangle[triangle] = face.id;
+      }
+      object.userData['faceOfTriangle'] = faceOfTriangle;
     });
+  }
+
+  function faceOverlayMaterial(hex: number): MeshBasicMaterial {
+    const material = new MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.45, depthTest: true, side: DoubleSide });
+    // Pull the overlay slightly toward the camera so it wins the depth test against its own face.
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -1;
+    material.polygonOffsetUnits = -1;
+    return material;
+  }
+
+  function clearFaceOverlay(slot: 'hover' | 'select'): void {
+    const mesh = faceOverlays.get(slot);
+    if (mesh) mesh.visible = false;
+  }
+
+  /** Builds/updates the highlight geometry for one face onto the matching body's transform, or hides the slot. */
+  function updateFaceOverlay(slot: 'hover' | 'select', pick: FacePick | null, hex: number): void {
+    if (!pick) {
+      clearFaceOverlay(slot);
+      return;
+    }
+    const body = sceneSync.objectFor(pick.bodyId);
+    const face = sceneSync.facesFor(pick.bodyId).find((candidate) => candidate.id === pick.faceId);
+    if (!body || !face) {
+      clearFaceOverlay(slot);
+      return;
+    }
+    const geometry = body.geometry;
+    const index = geometry.getIndex();
+    const position = geometry.getAttribute('position');
+    if (!index || !position) {
+      clearFaceOverlay(slot);
+      return;
+    }
+    const positions = faceOverlayPositions(index.array as ArrayLike<number>, position.array as ArrayLike<number>, face.triangles);
+
+    let mesh = faceOverlays.get(slot);
+    if (!mesh) {
+      mesh = new Mesh(new BufferGeometry(), faceOverlayMaterial(hex));
+      mesh.renderOrder = slot === 'select' ? 3 : 2;
+      faceOverlays.set(slot, mesh);
+      sceneSync.scene.add(mesh);
+    }
+    const overlayGeometry = mesh.geometry;
+    overlayGeometry.setAttribute('position', new BufferAttribute(positions, 3));
+    overlayGeometry.deleteAttribute('normal');
+    (mesh.material as MeshBasicMaterial).color.setHex(hex);
+    // Match the owning body's world transform (identity for a derived mesh body).
+    mesh.position.copy(body.position);
+    mesh.quaternion.copy(body.quaternion);
+    mesh.scale.copy(body.scale);
+    mesh.visible = true;
+  }
+
+  function refreshFaceOverlays(): void {
+    updateFaceOverlay('hover', facePickMode === 'off' ? null : currentHoveredFace, FACE_HOVER_HEX);
+    updateFaceOverlay('select', currentSelectedFace, FACE_SELECT_HEX);
   }
 
   function applyHighlights(): void {
@@ -160,9 +292,20 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     });
   }
 
+  /** Fades every body's material to the dimmed opacity (or restores it) so a face-pick/sketch context reads as focused. */
+  function applyDim(): void {
+    forEachBody((_id, object) => {
+      const material = object.material as MeshStandardMaterial;
+      material.transparent = modelDimmed;
+      material.opacity = modelDimmed ? DIMMED_OPACITY : 1;
+      material.needsUpdate = true;
+    });
+  }
+
   sceneSync.sync(currentDocument);
   tagBodyIds();
   applyHighlights();
+  applyDim();
   syncGizmoAttachment();
 
   let frameId = requestAnimationFrame(function loop() {
@@ -173,15 +316,31 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
 
   let pointerDown: { x: number; y: number } | null = null;
 
-  /** Raycasts the pointer position and returns the body id under it, or `null`. */
-  function pickAt(clientX: number, clientY: number): string | null {
+  /** Normalized device coordinates for a client pointer position, or `null` for a zero-sized canvas. */
+  function ndcAt(clientX: number, clientY: number): { ndcX: number; ndcY: number } | null {
     const rect = options.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
-    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
-    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
     activeCamera.updateMatrixWorld(true);
     sceneSync.scene.updateMatrixWorld(true);
-    return pickEntityId({ camera: activeCamera, scene: sceneSync.scene, ndcX, ndcY }) ?? null;
+    return { ndcX: ((clientX - rect.left) / rect.width) * 2 - 1, ndcY: -(((clientY - rect.top) / rect.height) * 2 - 1) };
+  }
+
+  /** Raycasts the pointer position and returns the body id under it, or `null`. */
+  function pickAt(clientX: number, clientY: number): string | null {
+    const ndc = ndcAt(clientX, clientY);
+    if (!ndc) return null;
+    return pickEntityId({ camera: activeCamera, scene: sceneSync.scene, ...ndc }) ?? null;
+  }
+
+  /** Raycasts the pointer position and returns the semantic face under it, or `null`. */
+  function pickFaceAt(clientX: number, clientY: number): FacePick | null {
+    const ndc = ndcAt(clientX, clientY);
+    if (!ndc) return null;
+    return pickFace({ camera: activeCamera, scene: sceneSync.scene, ...ndc });
+  }
+
+  function sameFace(a: FacePick | null, b: FacePick | null): boolean {
+    return a === b || (a != null && b != null && a.bodyId === b.bodyId && a.faceId === b.faceId);
   }
 
   function handlePointerDown(event: PointerEvent): void {
@@ -189,12 +348,20 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   }
 
   function handlePointerMove(event: PointerEvent): void {
-    if (!options.onHover) return;
     // Skip hover picking while the user is pressing (orbiting/dragging).
     if (pointerDown) return;
-    const bodyId = pickAt(event.clientX, event.clientY);
-    if (bodyId === currentHoveredId) return;
-    options.onHover(bodyId);
+    if (options.onHover) {
+      const bodyId = pickAt(event.clientX, event.clientY);
+      if (bodyId !== currentHoveredId) options.onHover(bodyId);
+    }
+    if (facePickMode !== 'off') {
+      const pick = pickFaceAt(event.clientX, event.clientY);
+      if (!sameFace(pick, currentHoveredFace)) {
+        currentHoveredFace = pick;
+        refreshFaceOverlays();
+        options.onFaceHover?.(pick);
+      }
+    }
   }
 
   function handlePointerUp(event: PointerEvent): void {
@@ -206,6 +373,18 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     // Raycasting reads matrixWorld, which is otherwise only refreshed inside
     // the render loop; pickAt updates it explicitly so a click is accurate even
     // before the next animation frame has drawn.
+    if (facePickMode === 'armed') {
+      const pick = pickFaceAt(event.clientX, event.clientY);
+      if (pick) options.onArmedFaceClick?.(pick);
+      return;
+    }
+    if (facePickMode === 'hover') {
+      const pick = pickFaceAt(event.clientX, event.clientY);
+      // A face hit selects body + face (preselect workflow); a miss clears selection.
+      if (pick) options.onFaceSelect?.(pick);
+      else options.onSelect(null);
+      return;
+    }
     options.onSelect(pickAt(event.clientX, event.clientY));
   }
 
@@ -221,8 +400,13 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       sceneSync.sync(document);
       // Drop a hover pointing at a body that no longer exists (e.g. after a delete).
       if (currentHoveredId && !sceneSync.objectFor(currentHoveredId)) currentHoveredId = null;
+      // Drop face picks whose owning body vanished; refresh overlays against the fresh geometry.
+      if (currentHoveredFace && !sceneSync.objectFor(currentHoveredFace.bodyId)) currentHoveredFace = null;
+      if (currentSelectedFace && !sceneSync.objectFor(currentSelectedFace.bodyId)) currentSelectedFace = null;
       tagBodyIds();
       applyHighlights();
+      applyDim();
+      refreshFaceOverlays();
       syncGizmoAttachment();
     },
 
@@ -235,6 +419,54 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     setHover(bodyId) {
       currentHoveredId = bodyId;
       applyHighlights();
+    },
+
+    setFacePickMode(mode) {
+      if (mode === facePickMode) return;
+      facePickMode = mode;
+      if (mode === 'off') {
+        currentHoveredFace = null;
+        options.onFaceHover?.(null);
+      }
+      refreshFaceOverlays();
+    },
+
+    setSelectedFace(pick) {
+      currentSelectedFace = pick;
+      refreshFaceOverlays();
+    },
+
+    setModelDimmed(dimmed) {
+      if (dimmed === modelDimmed) return;
+      modelDimmed = dimmed;
+      applyDim();
+    },
+
+    alignCameraToFace(frame) {
+      const origin = new Vector3(frame.origin[0], frame.origin[1], frame.origin[2]);
+      const normal = new Vector3(frame.normal[0], frame.normal[1], frame.normal[2]).normalize();
+      const distance = activeCamera.position.distanceTo(origin) || DEFAULT_CAMERA_POSITION[0];
+      activeCamera.position.copy(origin).addScaledVector(normal, distance);
+      activeCamera.up.set(frame.yAxis[0], frame.yAxis[1], frame.yAxis[2]);
+      activeCamera.lookAt(origin);
+      controls.target.copy(origin);
+      controls.update();
+    },
+
+    snapshotCamera() {
+      cameraSnapshot = { position: activeCamera.position.clone(), up: activeCamera.up.clone(), target: controls.target.clone() };
+    },
+
+    restoreCamera() {
+      if (!cameraSnapshot) return;
+      // Restore both cameras so whichever projection is active after a sketch shows the prior pose.
+      for (const camera of [perspectiveCamera, orthographicCamera]) {
+        camera.position.copy(cameraSnapshot.position);
+        camera.up.copy(cameraSnapshot.up);
+      }
+      controls.target.copy(cameraSnapshot.target);
+      controls.update();
+      cameraSnapshot = null;
     },
 
     setProjection(projection) {
@@ -277,6 +509,12 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       options.canvas.removeEventListener('pointerup', handlePointerUp);
       options.canvas.removeEventListener('pointermove', handlePointerMove);
       controls.dispose();
+      for (const mesh of faceOverlays.values()) {
+        sceneSync.scene.remove(mesh);
+        mesh.geometry.dispose();
+        (mesh.material as Material).dispose();
+      }
+      faceOverlays.clear();
       sceneSync.scene.remove(transformControls.getHelper());
       transformControls.dispose();
       sceneSync.scene.remove(groundGrid, ambientLight, keyLight, fillLight);

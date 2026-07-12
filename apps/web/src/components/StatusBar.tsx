@@ -17,6 +17,8 @@ export function StatusBar() {
   const selectedEntity = useCadStore(selectSelectedEntity);
   const cameraProjection = useCadStore((state) => state.cameraProjection);
   const sketchSolve = useCadStore((state) => state.sketchSolve);
+  const faceSketchArmed = useCadStore((state) => state.faceSketchArmed);
+  const faceSketchError = useCadStore((state) => state.faceSketchError);
 
   return (
     <footer className="status-bar">
@@ -26,6 +28,15 @@ export function StatusBar() {
         </button>
       </div>
       <div className="status-bar__info">
+        {faceSketchError ? (
+          <span className="status-bar__item status-bar__item--error" role="alert">
+            {faceSketchError}
+          </span>
+        ) : faceSketchArmed ? (
+          <span className="status-bar__item status-bar__item--hint" role="status">
+            Select a planar face to sketch on
+          </span>
+        ) : null}
         <span className="status-bar__item">{units}</span>
         <span className="status-bar__item">{bodyCount} bodies</span>
         {sketchSolve ? (

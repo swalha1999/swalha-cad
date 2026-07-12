@@ -15,7 +15,7 @@ export {
 } from './math/mat4.js';
 export type { Transform } from './math/transform.js';
 export { composeTransformMatrix, composeWorldMatrix, transformNormalBy, transformPointBy } from './math/transform.js';
-export type { IndexedMesh } from './mesh.js';
+export type { EvaluatedFace, IndexedMesh } from './mesh.js';
 export { getNormal, getPosition, getTriangleVertexIndices, triangleCount, vertexCount } from './mesh.js';
 export type { MeshBounds } from './mesh-validation.js';
 export {
@@ -43,6 +43,11 @@ export {
   sketchPointToModel,
   sketchVectorToModel,
 } from './sketch/plane.js';
+// Deterministic, orientation-stable frames for planar faces of evaluated solids:
+// build a right-handed PlaneFrame from a face's centroid + outward normal so a
+// downstream sketch's 2D coordinates embed exactly onto the face, reproducibly
+// across rebuild/reload.
+export { buildFaceFrame, orthonormalBasisFromNormal } from './sketch/face-frame.js';
 // Sketch topology and profile detection: validate a sketch's non-construction
 // line/circle entities and identify the single closed profile (one line loop
 // or one standalone circle) that a later extrude feature can consume.
@@ -99,8 +104,16 @@ export type {
   EvaluationDiagnosticCode,
   EvaluationDiagnostic,
   EvaluatedDocument,
+  FaceFrameError,
+  FaceFrameResult,
 } from './features/evaluate-document.js';
-export { evaluateDocument, evaluatedWorldBounds } from './features/evaluate-document.js';
+export {
+  evaluateDocument,
+  evaluatedWorldBounds,
+  evaluatedFaceFrame,
+  resolveFaceFrame,
+} from './features/evaluate-document.js';
+export { buildPrimitiveFaces } from './primitives/primitive-faces.js';
 // Scoped deterministic geometric constraint solver: solves M2's supported
 // coincidence/horizontal/vertical/distance/radius/angle constraints over point
 // coordinates and circle radii with a damped Gauss-Newton iteration, then

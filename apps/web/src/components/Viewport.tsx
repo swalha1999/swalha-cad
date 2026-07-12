@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { SketchPlane } from '@swalha-cad/document';
+import { resolveFaceFrame } from '@swalha-cad/geometry';
 import { buildExtrudePreviewDocument } from '../features/extrude-session.js';
+import { selectActiveSketch } from '../store/cad-store.js';
 import { useCadStore, useCadStoreApi } from '../store/cad-store-context.js';
 import { createViewportScene } from '../viewport/create-viewport-scene.js';
-import type { StandardView, ViewportScene } from '../viewport/create-viewport-scene.js';
+import type { FacePickMode, StandardView, ViewportScene } from '../viewport/create-viewport-scene.js';
 import { ViewCube } from './ViewCube.js';
 import { ViewportControls } from './ViewportControls.js';
 
@@ -33,11 +35,24 @@ export function Viewport() {
   const selectedEntityId = useCadStore((state) => state.selectedEntityId);
   const selectedFeatureId = useCadStore((state) => state.selectedFeatureId);
   const hoveredId = useCadStore((state) => state.hoveredId);
+  // Stable primitive slices only — the sketch session object changes on every cursor move.
+  const inSketch = useCadStore((state) => state.sketch !== null);
   const sketchPlane = useCadStore((state) => state.sketch?.plane ?? null);
+  const sketchFeatureId = useCadStore((state) => state.sketch?.featureId ?? null);
+  const faceSketchArmed = useCadStore((state) => state.faceSketchArmed);
+  const selectedFaceBodyId = useCadStore((state) => state.selectedFace?.bodyId ?? null);
+  const selectedFaceId = useCadStore((state) => state.selectedFace?.faceId ?? null);
+  const sketchFaceBodyId = useCadStore((state) => selectActiveSketch(state)?.face?.bodyId ?? null);
+  const sketchFaceId = useCadStore((state) => selectActiveSketch(state)?.face?.faceId ?? null);
   const storeApi = useCadStoreApi();
 
   // A single highlighted body: the selected feature's derived solid, or the selected primitive.
   const selectedBodyId = selectedFeatureId ?? selectedEntityId;
+
+  // While sketching the opaque 2D overlay owns interaction; armed picking waits for a
+  // face click; otherwise face hover/select is available for the preselect workflow.
+  const facePickMode: FacePickMode = inSketch ? 'off' : faceSketchArmed ? 'armed' : 'hover';
+  const modelDimmed = inSketch || faceSketchArmed;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -58,6 +73,9 @@ export function Viewport() {
       onSelect: (bodyId) => storeApi.getState().selectBody(bodyId),
       onTransformChange: (entityId, transform) => storeApi.getState().updateEntity(entityId, { transform }),
       onHover: (bodyId) => storeApi.getState().setHovered(bodyId),
+      onFaceHover: (pick) => storeApi.getState().setHoveredFace(pick),
+      onFaceSelect: (pick) => storeApi.getState().selectFace(pick),
+      onArmedFaceClick: (pick) => storeApi.getState().enterSketchOnFace(pick),
     });
     sceneRef.current = scene;
 
@@ -93,13 +111,48 @@ export function Viewport() {
   }, [hoveredId]);
 
   useEffect(() => {
+    sceneRef.current?.setFacePickMode(facePickMode);
+  }, [facePickMode]);
+
+  useEffect(() => {
+    sceneRef.current?.setModelDimmed(modelDimmed);
+  }, [modelDimmed]);
+
+  useEffect(() => {
+    const pick = selectedFaceBodyId && selectedFaceId ? { bodyId: selectedFaceBodyId, faceId: selectedFaceId } : null;
+    sceneRef.current?.setSelectedFace(pick);
+  }, [selectedFaceBodyId, selectedFaceId]);
+
+  useEffect(() => {
     sceneRef.current?.setProjection(projection);
   }, [projection]);
 
-  // Entering a sketch aligns the camera orthographically down the plane normal.
+  // Entering a sketch snapshots the camera so finishing/cancelling restores it exactly.
   useEffect(() => {
-    if (sketchPlane) sceneRef.current?.setStandardView(PLANE_VIEW[sketchPlane]);
-  }, [sketchPlane]);
+    const scene = sceneRef.current;
+    if (!scene || !sketchFeatureId) return;
+    scene.snapshotCamera();
+    return () => scene.restoreCamera();
+  }, [sketchFeatureId]);
+
+  // Orient the camera down the support: a face sketch aligns to the face normal,
+  // an origin-plane sketch looks straight down that plane's principal normal.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (sketchFaceBodyId && sketchFaceId) {
+      const resolved = resolveFaceFrame(storeApi.getState().document, sketchFaceBodyId, sketchFaceId);
+      if (resolved.ok) {
+        scene.alignCameraToFace({
+          origin: resolved.frame.origin,
+          normal: resolved.frame.normal,
+          yAxis: resolved.frame.yAxis,
+        });
+      }
+    } else if (sketchPlane) {
+      scene.setStandardView(PLANE_VIEW[sketchPlane]);
+    }
+  }, [sketchFeatureId, sketchFaceBodyId, sketchFaceId, sketchPlane, storeApi]);
 
   function handleSelectView(view: StandardView): void {
     sceneRef.current?.setStandardView(view);

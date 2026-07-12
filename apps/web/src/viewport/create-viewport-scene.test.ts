@@ -1,6 +1,6 @@
 import type { CadDocumentV2 } from '@swalha-cad/document';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Object3D } from 'three';
+import { Object3D, Vector3 } from 'three';
 import type { MeshStandardMaterial, Object3D as Object3DType, PerspectiveCamera } from 'three';
 
 const rendererState = vi.hoisted(() => ({ instances: [] as ReturnType<typeof buildFakeRenderer>[] }));
@@ -20,7 +20,7 @@ function buildFakeRenderer() {
 function buildFakeControls(camera: unknown) {
   return {
     object: camera,
-    target: { set: vi.fn() },
+    target: new Vector3(),
     update: vi.fn(),
     dispose: vi.fn(),
     enabled: true,
@@ -705,6 +705,172 @@ describe('createViewportScene', () => {
     canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 100 }));
 
     expect(onHover).toHaveBeenCalledWith('box-1');
+
+    scene.dispose();
+  });
+
+  const BOX_FACE_IDS = ['+x', '-x', '+y', '-y', '+z', '-z'];
+
+  it('prehighlights a face on hover in hover mode and reports it through onFaceHover', () => {
+    const onFaceHover = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+      onFaceHover,
+    });
+    scene.setFacePickMode('hover');
+
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 100 }));
+
+    expect(onFaceHover).toHaveBeenCalledTimes(1);
+    const pick = onFaceHover.mock.calls[0]![0];
+    expect(pick.bodyId).toBe('box-1');
+    expect(BOX_FACE_IDS).toContain(pick.faceId);
+    // A hover overlay mesh (no entityId) was added to the scene.
+    const overlay = scene.scene.children.find(
+      (child) => child.type === 'Mesh' && child.userData['entityId'] === undefined && (child as { visible: boolean }).visible,
+    );
+    expect(overlay).toBeTruthy();
+
+    scene.dispose();
+  });
+
+  it('selects body + face on a click in hover mode (preselect workflow)', () => {
+    const onSelect = vi.fn();
+    const onFaceSelect = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect,
+      onTransformChange: vi.fn(),
+      onFaceSelect,
+    });
+    scene.setFacePickMode('hover');
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100 }));
+
+    expect(onFaceSelect).toHaveBeenCalledTimes(1);
+    expect(onFaceSelect.mock.calls[0]![0].bodyId).toBe('box-1');
+
+    scene.dispose();
+  });
+
+  it('clears selection when a hover-mode click misses every face', () => {
+    const onSelect = vi.fn();
+    const onFaceSelect = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: 'box-1',
+      viewport: { width: 200, height: 200 },
+      onSelect,
+      onTransformChange: vi.fn(),
+      onFaceSelect,
+    });
+    scene.setFacePickMode('hover');
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 199, clientY: 1 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 199, clientY: 1 }));
+
+    expect(onFaceSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith(null);
+
+    scene.dispose();
+  });
+
+  it('enters a sketch (not a body selection) on a face click in armed mode, with the model dimmed', () => {
+    const onSelect = vi.fn();
+    const onArmedFaceClick = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect,
+      onTransformChange: vi.fn(),
+      onArmedFaceClick,
+    });
+    scene.setFacePickMode('armed');
+    scene.setModelDimmed(true);
+
+    const box = scene.scene.children.find((child) => child.userData['entityId'] === 'box-1')!;
+    const material = (box as unknown as { material: MeshStandardMaterial }).material;
+    expect(material.opacity).toBeLessThan(1);
+    expect(material.transparent).toBe(true);
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100 }));
+
+    expect(onArmedFaceClick).toHaveBeenCalledTimes(1);
+    expect(onArmedFaceClick.mock.calls[0]![0].bodyId).toBe('box-1');
+    expect(onSelect).not.toHaveBeenCalled();
+
+    scene.setModelDimmed(false);
+    expect(material.opacity).toBe(1);
+
+    scene.dispose();
+  });
+
+  it('highlights a distinct selected-face overlay and disposes it on teardown', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const before = scene.scene.children.length;
+    scene.setSelectedFace({ bodyId: 'box-1', faceId: '+z' });
+    const overlay = scene.scene.children.find(
+      (child) => child.type === 'Mesh' && child.userData['entityId'] === undefined && (child as { visible: boolean }).visible,
+    );
+    expect(overlay).toBeTruthy();
+    expect(scene.scene.children.length).toBeGreaterThan(before);
+
+    scene.dispose();
+    expect(scene.scene.children).toHaveLength(0);
+  });
+
+  it('snapshots and restores the camera pose around a sketch', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+    const camera = scene.getActiveCamera();
+    camera.position.set(50, 60, 70);
+    scene.snapshotCamera();
+
+    scene.alignCameraToFace({ origin: [0, 0, 5], normal: [0, 0, 1], yAxis: [0, 1, 0] });
+    // Aligned: looking down +z, the camera sits above the face origin.
+    expect(scene.getActiveCamera().position.z).toBeGreaterThan(5);
+
+    scene.restoreCamera();
+    expect(scene.getActiveCamera().position.x).toBeCloseTo(50, 5);
+    expect(scene.getActiveCamera().position.y).toBeCloseTo(60, 5);
+    expect(scene.getActiveCamera().position.z).toBeCloseTo(70, 5);
 
     scene.dispose();
   });

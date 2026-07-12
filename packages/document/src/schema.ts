@@ -157,6 +157,9 @@ export const sketchConstraintSchema = z.discriminatedUnion('kind', [
   angleConstraintSchema,
 ]);
 
+/** A stable planar-face support: the owning evaluated body id plus its deterministic semantic face id. */
+const faceSupportSchema = z.object({ bodyId: z.string(), faceId: z.string() }).strict();
+
 /** Plain (unrefined) shape so it can serve as a `z.discriminatedUnion` member; cross-reference checks live in `validateSketchReferences`. */
 export const sketchFeatureSchema = z
   .object({
@@ -164,6 +167,7 @@ export const sketchFeatureSchema = z
     kind: z.literal('sketch'),
     name: z.string(),
     plane: sketchPlaneSchema,
+    face: faceSupportSchema.optional(),
     entities: z.array(sketchEntitySchema),
     constraints: z.array(sketchConstraintSchema),
     visible: z.boolean(),

@@ -1333,6 +1333,14 @@ body {
 .status-bar__solve--conflicting {
   color: var(--destructive);
 }
+.status-bar__item--hint {
+  color: var(--primary);
+  font-weight: 600;
+}
+.status-bar__item--error {
+  color: var(--destructive);
+  font-weight: 600;
+}
 
 /* Shared form fields (used by the context panel) */
 

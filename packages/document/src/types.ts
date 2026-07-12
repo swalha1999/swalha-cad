@@ -56,11 +56,37 @@ export type SketchConstraint =
   | { id: string; kind: 'radius'; circleId: string; value: number }
   | { id: string; kind: 'angle'; lineA: string; lineB: string; valueDeg: number };
 
+/**
+ * A stable reference to a planar face of an evaluated solid, used as a sketch's
+ * support instead of an origin plane. `bodyId` names the owning evaluated body —
+ * an entity id for a primitive or a feature id for a derived solid — and
+ * `faceId` is that body's deterministic semantic face id (e.g. `'top'`,
+ * `'side:<edgeId>'`, `'+x'`). Neither is a transient Three.js face index; the
+ * pair is re-resolved against the evaluated geometry each time the frame is
+ * needed, and a reference that no longer resolves is reported explicitly rather
+ * than reattached to a different face.
+ */
+export interface SketchFaceSupport {
+  bodyId: string;
+  faceId: string;
+}
+
 export interface SketchFeature {
   id: string;
   kind: 'sketch';
   name: string;
+  /**
+   * The origin plane a sketch is drawn on. For a face-supported sketch this is
+   * retained as the nearest principal plane (an orientation hint / legacy
+   * fallback); the true support frame comes from {@link face}.
+   */
   plane: SketchPlane;
+  /**
+   * When present, the sketch is supported by a planar face of an evaluated solid
+   * rather than the origin {@link plane}. Optional so all existing origin-plane
+   * sketches (and documents saved before face sketching) are unchanged.
+   */
+  face?: SketchFaceSupport | undefined;
   entities: SketchEntity[];
   constraints: SketchConstraint[];
   visible: boolean;
