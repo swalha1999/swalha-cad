@@ -228,27 +228,60 @@ describe('detectSketchProfile: circle profile', () => {
   });
 });
 
-describe('detectSketchProfile: unsupported arc geometry', () => {
-  it('returns a structured unsupported-arc diagnostic for a standalone arc rather than misclassifying it', () => {
+describe('detectSketchProfile: curve-loop (line + arc) profiles', () => {
+  /** A "D-shape": diameter line (5,0)->(-5,0) closed by an upper semicircle of radius 5 about the origin. */
+  function dShape(): SketchEntity[] {
+    return [
+      point('a', 5, 0),
+      point('b', -5, 0),
+      point('center', 0, 0),
+      line('l', 'a', 'b'),
+      { id: 'arc', kind: 'arc', centerId: 'center', radius: 5, startAngle: 0, endAngle: Math.PI, direction: 'ccw', construction: false },
+    ];
+  }
+
+  it('detects a line + semicircle D-shape as a curve-loop profile', () => {
+    const result = detectSketchProfile(sketch(dShape()));
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.profile.kind).toBe('curve-loop');
+    if (result.profile.kind !== 'curve-loop') throw new Error('expected curve-loop');
+    expect(result.profile.edges).toHaveLength(2);
+  });
+
+  it('produces an identical profile for shuffled entity order', () => {
+    const natural = detectSketchProfile(sketch(dShape()));
+    const shuffled = detectSketchProfile(sketch([...dShape()].reverse()));
+    expect(natural).toEqual(shuffled);
+  });
+
+  it('reports an open-chain diagnostic for a standalone (unclosed) arc', () => {
     const result = detectSketchProfile(sketch([point('center', 0, 0), arc('a0', 'center')]));
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected failure');
-    expect(result.issues.map((i) => i.kind)).toEqual(['unsupported-arc']);
-    expect(result.issues[0]!.entityIds).toContain('a0');
+    expect(result.issues.map((i) => i.kind)).toEqual(['open-chain']);
   });
 
-  it('flags an arc even when an otherwise-valid line loop is present (never silently omitted)', () => {
-    const result = detectSketchProfile(sketch([...ccwRectangle(), point('center', 2, 1), arc('a0', 'center')]));
+  it('reports a disconnected diagnostic for a closed line loop plus a separate dangling arc', () => {
+    const result = detectSketchProfile(sketch([...ccwRectangle(), point('center', 20, 20), arc('a0', 'center')]));
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected failure');
-    expect(result.issues.map((i) => i.kind)).toEqual(['unsupported-arc']);
+    // The rectangle closes on its own; the lone arc is a second, separate component.
+    expect(result.issues.map((i) => i.kind)).toEqual(['disconnected']);
   });
 
-  it('excludes construction arcs, so a construction arc does not block a valid profile', () => {
+  it('excludes construction arcs, so a construction arc does not block a valid line profile', () => {
     const result = detectSketchProfile(sketch([...ccwRectangle(), point('center', 2, 1, true), arc('a0', 'center', true)]));
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     expect(result.profile.kind).toBe('line-loop');
+  });
+
+  it('rejects a curve loop mixed with a standalone circle as ambiguous', () => {
+    const result = detectSketchProfile(sketch([...dShape(), point('cc', 40, 40), circle('c0', 'cc', 3)]));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected failure');
+    expect(result.issues.map((i) => i.kind)).toEqual(['disconnected']);
   });
 });
 

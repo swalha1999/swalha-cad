@@ -120,7 +120,7 @@ describe('slot through the store', () => {
 });
 
 describe('arc profile diagnostics through the store', () => {
-  it('reports an explicit unsupported-arc diagnostic instead of a valid profile', () => {
+  it('reports an open-chain diagnostic for a standalone arc', () => {
     const store = deterministicStore();
     store.getState().enterSketch('XY');
     store.getState().setSketchTool('arc-3point');
@@ -131,6 +131,6 @@ describe('arc profile diagnostics through the store', () => {
     const result = detectSketchProfile(activeSketch(store));
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues.map((i) => i.kind)).toContain('unsupported-arc');
+    expect(result.issues.map((i) => i.kind)).toContain('open-chain');
   });
 });

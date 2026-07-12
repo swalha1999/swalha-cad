@@ -53,8 +53,14 @@ export function arcEndpoints(arc: ArcGeometry): { start: Vec2; end: Vec2 } {
   };
 }
 
-/** Signed total sweep (radians) of an arc: positive counter-clockwise, negative clockwise. */
-function signedSweep(arc: ArcGeometry): number {
+/**
+ * Signed total sweep (radians) of an arc: positive counter-clockwise, negative
+ * clockwise. Coincident start/end angles denote a full turn (±2π), matching how
+ * the document stores a full-circle arc. Exported so topology and extrusion can
+ * size an arc's tessellation and detect a zero-sweep or full-circle degeneracy
+ * from the same authoritative definition the sampler uses.
+ */
+export function signedArcSweep(arc: ArcGeometry): number {
   if (arc.direction === 'ccw') {
     const delta = wrap(arc.endAngle - arc.startAngle);
     return delta === 0 ? TWO_PI : delta;
@@ -70,7 +76,7 @@ function signedSweep(arc: ArcGeometry): number {
  */
 export function sampleArc(arc: ArcGeometry, segments: number): Vec2[] {
   const count = Math.max(1, Math.floor(segments));
-  const total = signedSweep(arc);
+  const total = signedArcSweep(arc);
   const points: Vec2[] = [];
   for (let i = 0; i <= count; i++) {
     const angle = arc.startAngle + (total * i) / count;

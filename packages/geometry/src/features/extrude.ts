@@ -2,6 +2,8 @@ import type { SketchFeature } from '@swalha-cad/document';
 import type { Vec3 } from '../math/vec3.js';
 import { add, normalize, scale } from '../math/vec3.js';
 import type { IndexedMesh } from '../mesh.js';
+import { sampleArcEdge } from '../sketch/curves.js';
+import type { OrientedCurveEdge } from '../sketch/loop.js';
 import { getPlaneFrame, sketchPointToModel, sketchVectorToModel, type Vec2 } from '../sketch/plane.js';
 import { detectSketchProfile, type SketchProfile } from '../sketch/profile.js';
 import { indexSketchEntities, type TopologyIssue } from '../sketch/topology.js';
@@ -35,6 +37,37 @@ function fail(code: ExtrudeErrorCode, message: string, issues: readonly Topology
   return { ok: false, error: { code, message, issues } };
 }
 
+function allFinite(p: Vec2): boolean {
+  return Number.isFinite(p[0]) && Number.isFinite(p[1]);
+}
+
+/**
+ * Flattens one closed curve loop into a counter-clockwise ring of 2D points.
+ * Each edge is sampled from its own start toward its end — a line contributes its
+ * two endpoints, an arc a deterministic run of chords (see
+ * {@link sampleArcEdge})' — and every edge drops its final point, which is the
+ * next edge's start, so adjacent edges join without duplicating the shared
+ * vertex. Returns a structured degenerate-profile error for any non-finite
+ * coordinate.
+ */
+function curveLoopRing(edges: readonly OrientedCurveEdge[]): { ring: Vec2[] } | { error: ExtrudeResult } {
+  const ring: Vec2[] = [];
+  for (const edge of edges) {
+    const points = edge.kind === 'arc' ? sampleArcEdge(edge.arc!, edge.start) : [edge.start, edge.end];
+    for (let i = 0; i < points.length - 1; i++) {
+      const point = points[i]!;
+      if (!allFinite(point)) {
+        return { error: fail('degenerate-profile', `Profile edge ${edge.id} produced a non-finite point.`) };
+      }
+      ring.push(point);
+    }
+  }
+  if (ring.length < 3) {
+    return { error: fail('degenerate-profile', 'Curve loop tessellated to fewer than 3 distinct points.') };
+  }
+  return { ring };
+}
+
 /**
  * Resolves a detected profile into an ordered, counter-clockwise ring of 2D
  * sketch-plane points. Line loops reuse the profile's normalized point order;
@@ -55,6 +88,10 @@ function profileRing(sketch: SketchFeature, profile: SketchProfile): { ring: Vec
       ring.push([point.x, point.y]);
     }
     return { ring };
+  }
+
+  if (profile.kind === 'curve-loop') {
+    return curveLoopRing(profile.edges);
   }
 
   if (!Number.isFinite(profile.radius) || profile.radius <= 0) {

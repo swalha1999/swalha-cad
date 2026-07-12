@@ -1,5 +1,11 @@
 import type { SketchEntity, SketchFeature } from '@swalha-cad/document';
-import { findLoopSelfIntersections, type LoopSegment } from './intersections.js';
+import {
+  findCurveLoopIntersections,
+  findLoopSelfIntersections,
+  type CurveLoopSegment,
+  type LoopSegment,
+} from './intersections.js';
+import { analyzeCurveLoopTopology, type OrientedCurveEdge } from './loop.js';
 import { analyzeLineLoopTopology, indexSketchEntities, type ClosedLineLoop, type TopologyIssue } from './topology.js';
 import type { Vec2 } from './plane.js';
 
@@ -18,7 +24,17 @@ export interface CircleProfile {
   readonly radius: number;
 }
 
-export type SketchProfile = LineLoopProfile | CircleProfile;
+/**
+ * A single closed, non-self-intersecting loop mixing lines and arcs, wound
+ * counter-clockwise. The authored arc topology is preserved (arcs are kept as
+ * arcs, not flattened), so a consumer decides its own tessellation density.
+ */
+export interface CurveLoopProfile {
+  readonly kind: 'curve-loop';
+  readonly edges: readonly OrientedCurveEdge[];
+}
+
+export type SketchProfile = LineLoopProfile | CircleProfile | CurveLoopProfile;
 
 export type ProfileResult =
   | { readonly ok: true; readonly profile: SketchProfile }
@@ -87,20 +103,38 @@ export function detectSketchProfile(sketch: SketchFeature): ProfileResult {
   const circles = entities.filter((entity): entity is Extract<SketchEntity, { kind: 'circle' }> => entity.kind === 'circle');
   const arcs = entities.filter((entity): entity is Extract<SketchEntity, { kind: 'arc' }> => entity.kind === 'arc');
 
-  // Regular (non-construction) arcs are first-class geometry but not yet
-  // extrusion-ready: surface an explicit structured diagnostic rather than
-  // misclassifying them as another kind or silently dropping them from a profile.
+  // A loop containing any arc is resolved by the curve-aware topology (endpoint
+  // tolerance matching), which supports connected mixes of lines and arcs —
+  // D-shapes, semicircles, slots, and multi-arc loops.
   if (arcs.length > 0) {
-    return {
-      ok: false,
-      issues: [
-        issue(
-          'unsupported-arc',
-          'Sketch contains arc geometry; arc profiles are not yet supported for extrusion.',
-          arcs.map((arc) => arc.id),
-        ),
-      ],
-    };
+    if (circles.length > 0) {
+      return {
+        ok: false,
+        issues: [
+          issue(
+            'disconnected',
+            'Sketch contains both a line/arc chain and standalone circle(s); only one profile is supported.',
+            [...arcs.map((a) => a.id), ...lines.map((l) => l.id), ...circles.map((c) => c.id)],
+          ),
+        ],
+      };
+    }
+
+    const topology = analyzeCurveLoopTopology(entities);
+    if (!topology.ok) return { ok: false, issues: topology.issues };
+
+    const segments: CurveLoopSegment[] = topology.loop.edges.map((edge) =>
+      edge.kind === 'arc'
+        ? { id: edge.id, kind: 'arc', a: edge.start, b: edge.end, arc: edge.arc! }
+        : { id: edge.id, kind: 'line', a: edge.start, b: edge.end },
+    );
+    const intersections = findCurveLoopIntersections(segments);
+    if (intersections.length > 0) {
+      const entityIds = [...new Set(intersections.flatMap((s) => [s.lineIdA, s.lineIdB]))];
+      return { ok: false, issues: [issue('self-intersection', 'Profile edges cross or overlap.', entityIds)] };
+    }
+
+    return { ok: true, profile: { kind: 'curve-loop', edges: topology.loop.edges } };
   }
 
   if (lines.length > 0) {

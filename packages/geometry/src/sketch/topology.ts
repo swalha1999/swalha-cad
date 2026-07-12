@@ -32,7 +32,11 @@ export type TopologyIssueKind =
   | 'open-chain'
   | 'disconnected'
   | 'self-intersection'
-  /** A non-construction arc is present but arc profiles are not yet supported by extrusion. */
+  /** An arc whose two endpoints coincide, so it represents a full circle and cannot join a chain unambiguously. */
+  | 'full-circle-arc'
+  /** An arc with no (or non-finite) angular sweep or radius: a degenerate edge that cannot be traversed. */
+  | 'zero-sweep-arc'
+  /** A non-construction arc is present but arc profiles are not yet supported by extrusion (legacy; no longer emitted for supported closed loops). */
   | 'unsupported-arc';
 
 /** A structured diagnostic describing why a sketch's topology could not be resolved into a profile. */
