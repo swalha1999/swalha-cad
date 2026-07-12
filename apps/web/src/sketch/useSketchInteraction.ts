@@ -205,6 +205,10 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // Split modify tool.
         event.preventDefault();
         state.setSketchModifyTool(state.sketch.modify?.tool === 'split' ? null : 'split');
+      } else if (key === 'e') {
+        // Extend modify tool.
+        event.preventDefault();
+        state.setSketchModifyTool(state.sketch.modify?.tool === 'extend' ? null : 'extend');
       } else if (key === 'g') {
         event.preventDefault();
         state.setGridVisible(!state.gridVisible);

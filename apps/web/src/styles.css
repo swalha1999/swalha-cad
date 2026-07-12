@@ -855,6 +855,22 @@ body {
   stroke-width: 1.5;
 }
 
+/* The segment Extend would add: a dashed green lead-out to the boundary. */
+.sketch-overlay__modify-extend {
+  stroke: #30a46c;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* The boundary point an Extend would reach. */
+.sketch-overlay__modify-hit {
+  fill: #30a46c;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
 /* Cursor-local diagnostic for an invalid modify hover. */
 .sketch-overlay__modify-error {
   fill: #e5484d;

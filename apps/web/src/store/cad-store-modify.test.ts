@@ -43,7 +43,7 @@ describe('setSketchModifyTool', () => {
     store.getState().setSketchModifyTool('trim');
 
     const session = store.getState().sketch!;
-    expect(session.modify).toEqual({ tool: 'trim', point: null });
+    expect(session.modify).toEqual({ tool: 'trim', point: null, note: null });
     expect(session.tool).toBeNull();
     expect(session.toolState).toBeNull();
     expect(store.getState().sketchSelection).toEqual([]);
@@ -116,6 +116,61 @@ describe('applySketchModify: trim', () => {
     store.getState().applySketchModify({ x: 50, y: 0 });
 
     expect(store.getState().document).toBe(documentBefore); // unchanged reference
+    expect(store.getState().history.past.length).toBe(pastBefore);
+  });
+});
+
+describe('applySketchModify: extend', () => {
+  function seedShortEdge(store: Store): void {
+    store.getState().enterSketch('XY');
+    drawLine(store, [0, 0], [10, 0]); // target, ends short of the boundary
+    drawLine(store, [20, -10], [20, 10]); // forward boundary
+    store.getState().setSketchModifyTool('extend');
+  }
+
+  it('extends an endpoint to the forward boundary via one undoable command', () => {
+    const store = deterministicStore();
+    seedShortEdge(store);
+    const pastBefore = store.getState().history.past.length;
+
+    store.getState().applySketchModify({ x: 9, y: 0.5 });
+
+    const sketch = activeSketch(store);
+    expect(lines(sketch)).toHaveLength(2); // target (now longer) + boundary
+    expect(points(sketch).some((p) => Math.abs(p.x - 20) < 1e-9 && Math.abs(p.y) < 1e-9)).toBe(true); // reached boundary
+    expect(points(sketch).some((p) => Math.abs(p.x - 10) < 1e-9 && Math.abs(p.y) < 1e-9)).toBe(false); // old endpoint gone
+    expect(store.getState().history.past.length).toBe(pastBefore + 1); // exactly one command
+    expect(store.getState().sketch?.modify?.tool).toBe('extend'); // tool stays active
+    expect(store.getState().sketch?.modify?.note).toBeNull(); // nothing removed to report
+  });
+
+  it('undo/redo restores exact entities, ids and constraints', () => {
+    const store = deterministicStore();
+    seedShortEdge(store);
+    const before = activeSketch(store);
+
+    store.getState().applySketchModify({ x: 9, y: 0.5 });
+    const extended = activeSketch(store);
+
+    store.getState().undo();
+    expect(activeSketch(store).entities).toEqual(before.entities);
+    expect(activeSketch(store).constraints).toEqual(before.constraints);
+
+    store.getState().redo();
+    expect(activeSketch(store).entities).toEqual(extended.entities);
+  });
+
+  it('is a no-op (no history entry) when nothing lies ahead of the endpoint', () => {
+    const store = deterministicStore();
+    store.getState().enterSketch('XY');
+    drawLine(store, [0, 0], [10, 0]); // lone line, nothing ahead
+    store.getState().setSketchModifyTool('extend');
+    const documentBefore = store.getState().document;
+    const pastBefore = store.getState().history.past.length;
+
+    store.getState().applySketchModify({ x: 9, y: 0.5 });
+
+    expect(store.getState().document).toBe(documentBefore);
     expect(store.getState().history.past.length).toBe(pastBefore);
   });
 });

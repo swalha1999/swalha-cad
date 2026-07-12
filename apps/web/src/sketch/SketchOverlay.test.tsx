@@ -111,6 +111,53 @@ describe('SketchOverlay', () => {
     expect(error?.textContent).toMatch(/no intersections/i);
   });
 
+  it('previews the Extend lead-out and boundary hit when hovering near an endpoint', () => {
+    let n = 0;
+    const store = createCadStore(undefined, { createId: () => `id-${++n}` });
+    store.getState().enterSketch('XY');
+    // A short target line and a vertical boundary ahead of its end endpoint.
+    store.getState().setSketchTool('line');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(0, 0) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(10, 0) });
+    store.getState().dispatchSketchEvent({ type: 'finish' });
+    store.getState().setSketchTool('line');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(20, -10) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(20, 10) });
+    store.getState().dispatchSketchEvent({ type: 'finish' });
+    store.getState().setSketchModifyTool('extend');
+    store.getState().setModifyPoint({ x: 9, y: 0.5 });
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    expect(container.querySelector('.sketch-overlay__modify-target')).not.toBeNull();
+    expect(container.querySelector('.sketch-overlay__modify-extend')).not.toBeNull();
+    expect(container.querySelector('.sketch-overlay__modify-hit')).not.toBeNull();
+  });
+
+  it('announces the Extend commit report in an accessible live region', () => {
+    let n = 0;
+    const store = createCadStore(undefined, { createId: () => `id-${++n}` });
+    store.getState().enterSketch('XY');
+    store.getState().setSketchTool('line');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(0, 0) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(10, 0) });
+    store.getState().dispatchSketchEvent({ type: 'finish' });
+    store.getState().setSketchModifyTool('extend');
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    const live = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(live).not.toBeNull();
+  });
+
   it('marks the Split point under the cursor', () => {
     const store = lineStore();
     store.getState().setSketchModifyTool('split');

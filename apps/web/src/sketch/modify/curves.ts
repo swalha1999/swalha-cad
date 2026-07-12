@@ -57,8 +57,8 @@ export type ResolvedCurve =
       readonly direction: ArcDirection;
     };
 
-/** A curve (line, arc, or full circle) that a trim/split target can be divided against. */
-type BoundaryCurve =
+/** A curve (line, arc, or full circle) that a trim/split/extend target can be divided or extended against. */
+export type BoundaryCurve =
   | { readonly id: string; readonly kind: 'line'; readonly a: Point; readonly b: Point }
   | { readonly id: string; readonly kind: 'arc'; readonly arc: ArcGeometry };
 
@@ -111,8 +111,8 @@ export function resolveCurve(sketch: SketchFeature, id: string): ResolvedCurve |
   return null;
 }
 
-/** All lines and arcs other than `excludeId`, as boundary curves (circles included as full circles). */
-function resolveBoundaries(sketch: SketchFeature, excludeId: string): BoundaryCurve[] {
+/** All lines and arcs other than `excludeId`, as boundary curves (circles included as full circles). Construction geometry is included so it can act as a boundary. */
+export function resolveBoundaries(sketch: SketchFeature, excludeId: string): BoundaryCurve[] {
   const coords = pointCoords(sketch);
   const boundaries: BoundaryCurve[] = [];
   for (const entity of sketch.entities) {
@@ -157,6 +157,16 @@ function arcAngleParam(arc: ArcGeometry, phi: number): number {
 /** The angle (radians) at a normalised param along an arc's sweep. */
 export function arcParamAngle(arc: ArcGeometry, t: number): number {
   return arc.startAngle + signedArcSweep(arc) * t;
+}
+
+/**
+ * The normalised position of a point (assumed on the arc's circle) along the arc's
+ * signed sweep from its start endpoint. May fall outside [0, 1] when the point is
+ * off the sweep — callers test the range to decide whether the point lies on the arc.
+ */
+export function arcParamOfPoint(arc: ArcGeometry, point: Point): number {
+  const phi = Math.atan2(point[1] - arc.center[1], point[0] - arc.center[0]);
+  return arcAngleParam(arc, phi);
 }
 
 export interface Projection {

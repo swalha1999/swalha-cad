@@ -269,21 +269,28 @@ function ModifyTargetHighlight({ entities, targetId }: { entities: readonly Sket
 }
 
 /**
- * Strong hover/preview feedback for the active Trim/Split tool: the curve under the
- * cursor is outlined, the exact affected portion is shown (the piece Trim would
- * remove, or the point Split would create), and an invalid hover shows a
- * cursor-local diagnostic. Purely a preview — nothing is committed until a click.
+ * Strong hover/preview feedback for the active Trim/Split/Extend tool: the curve
+ * under the cursor is outlined, the exact affected portion is shown (the piece Trim
+ * would remove, the point Split would create, or the segment Extend would add and
+ * the boundary point it reaches), and an invalid hover shows a cursor-local
+ * diagnostic. Purely a preview — nothing is committed until a click.
  */
 function ModifyOverlay({ preview, entities, cursor }: { preview: ModifyPreview; entities: readonly SketchEntity[]; cursor: Vec2 }) {
   const removed = preview.removedPolyline
     ? preview.removedPolyline.map(([x, y]) => planeToSvg(x, y)).map((p) => `${p.x},${p.y}`).join(' ')
     : null;
   const split = preview.splitPoint ? planeToSvg(preview.splitPoint[0], preview.splitPoint[1]) : null;
+  const extension = preview.extensionPolyline
+    ? preview.extensionPolyline.map(([x, y]) => planeToSvg(x, y)).map((p) => `${p.x},${p.y}`).join(' ')
+    : null;
+  const hit = preview.hitPoint ? planeToSvg(preview.hitPoint[0], preview.hitPoint[1]) : null;
   const cursorSvg = planeToSvg(cursor.x, cursor.y);
   return (
     <g className={`sketch-overlay__modify sketch-overlay__modify--${preview.valid ? 'valid' : 'invalid'}`} aria-hidden="true">
       <ModifyTargetHighlight entities={entities} targetId={preview.targetId} />
       {removed ? <polyline points={removed} fill="none" className="sketch-overlay__modify-remove" /> : null}
+      {extension ? <polyline points={extension} fill="none" className="sketch-overlay__modify-extend" /> : null}
+      {hit ? <circle cx={hit.x} cy={hit.y} r={4} className="sketch-overlay__modify-hit" /> : null}
       {split ? <circle cx={split.x} cy={split.y} r={4} className="sketch-overlay__modify-split" /> : null}
       {!preview.valid && preview.message ? (
         <text x={cursorSvg.x + 10} y={cursorSvg.y - 10} className="sketch-overlay__modify-error">
@@ -342,17 +349,21 @@ export function SketchOverlay() {
     sketch && dimension?.phase === 'awaiting' ? dimensionAnnotation(sketch, dimension, DIMENSION_OFFSET_MM) : null;
 
   return (
-    <svg
-      ref={svgRef}
-      className="sketch-overlay__svg"
-      role="img"
-      aria-label="Sketch canvas"
-      viewBox={`${-HALF_W} ${-HALF_H} ${SKETCH_VIEW_WIDTH} ${SKETCH_VIEW_HEIGHT}`}
-      preserveAspectRatio="xMidYMid meet"
-      onPointerMove={handlers.onPointerMove}
-      onClick={handlers.onClick}
-      onDoubleClick={handlers.onDoubleClick}
-    >
+    <>
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {modify?.note ?? ''}
+      </div>
+      <svg
+        ref={svgRef}
+        className="sketch-overlay__svg"
+        role="img"
+        aria-label="Sketch canvas"
+        viewBox={`${-HALF_W} ${-HALF_H} ${SKETCH_VIEW_WIDTH} ${SKETCH_VIEW_HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+        onPointerMove={handlers.onPointerMove}
+        onClick={handlers.onClick}
+        onDoubleClick={handlers.onDoubleClick}
+      >
       {gridVisible ? <Grid /> : null}
       <Axes />
       <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={onEntityClick} />
@@ -361,6 +372,7 @@ export function SketchOverlay() {
       {modifyView && modifyPoint ? <ModifyOverlay preview={modifyView} entities={entities} cursor={modifyPoint} /> : null}
       {annotation && dimension?.phase === 'awaiting' ? <DimensionOverlay annotation={annotation} measured={dimension.measured} /> : null}
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
-    </svg>
+      </svg>
+    </>
   );
 }

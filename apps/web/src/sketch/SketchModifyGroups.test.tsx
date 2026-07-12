@@ -34,6 +34,20 @@ describe('SketchModifyGroups', () => {
     expect(store.getState().sketch?.modify?.tool).toBe('split');
   });
 
+  it('exposes Extend behind the family dropdown with its icon, shortcut and radio semantics', () => {
+    const store = renderGroups();
+    expect(screen.queryByRole('menuitemradio', { name: 'Extend' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Modify tools' }));
+    const extend = screen.getByRole('menuitemradio', { name: 'Extend' });
+    expect(extend).toHaveAttribute('aria-keyshortcuts', 'E');
+    expect(extend).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(extend);
+    expect(store.getState().sketch?.modify?.tool).toBe('extend');
+    // Re-opening the menu shows Extend now checked as the active tool.
+    fireEvent.click(screen.getByRole('button', { name: 'Modify tools' }));
+    expect(screen.getByRole('menuitemradio', { name: 'Extend' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('activates Trim and reflects aria-pressed, toggling off when clicked again', () => {
     const store = renderGroups();
     const trim = screen.getByRole('button', { name: 'Trim' });

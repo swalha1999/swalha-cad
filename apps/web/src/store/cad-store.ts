@@ -99,11 +99,13 @@ export interface SketchSession {
   modify: ModifyState | null;
 }
 
-/** The live state of an active Trim/Split modify tool: which tool, and the cursor point driving its preview. */
+/** The live state of an active Trim/Split/Extend modify tool: which tool, the cursor point driving its preview, and the last commit's report. */
 export interface ModifyState {
   tool: ModifyTool;
   /** Latest plane-local cursor position, or `null` when the cursor has left the canvas / the preview was cancelled. */
   point: Vec2 | null;
+  /** A human-readable note about the most recent commit (e.g. constraints removed by an Extend), announced for accessibility; `null` when there is nothing to report. */
+  note: string | null;
 }
 
 /**
@@ -1131,7 +1133,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           tool: null,
           toolState: null,
           dimension: null,
-          modify: next ? { tool: next, point: session.modify?.point ?? null } : null,
+          modify: next ? { tool: next, point: session.modify?.point ?? null, note: null } : null,
         },
         ...(next ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
@@ -1170,7 +1172,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         // The tool stays active (point retained) so repeated edits need no re-selection.
-        sketch: { ...session, modify: { ...session.modify, point } },
+        sketch: { ...session, modify: { ...session.modify, point, note: outcome.note ?? null } },
         sketchSelection: state.sketchSelection.filter((id) => remainingEntityIds.has(id)),
         selectedConstraintId:
           state.selectedConstraintId && remainingConstraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,

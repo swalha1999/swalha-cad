@@ -76,7 +76,7 @@ export function computeTrim(sketch: SketchFeature, target: ResolvedCurve, clickP
 }
 
 /** All point ids referenced by any line/circle/arc in a list of entities. */
-function referencedPointIds(entities: readonly SketchEntity[]): Set<string> {
+export function referencedPointIds(entities: readonly SketchEntity[]): Set<string> {
   const ids = new Set<string>();
   for (const entity of entities) {
     if (entity.kind === 'line') {
@@ -90,7 +90,7 @@ function referencedPointIds(entities: readonly SketchEntity[]): Set<string> {
 }
 
 /** Every point id a constraint depends on, so it can be dropped when one is removed. */
-function constraintPointRefs(constraint: SketchConstraint): string[] {
+export function constraintPointRefs(constraint: SketchConstraint): string[] {
   if (constraint.kind === 'coincident' || constraint.kind === 'distance') return [constraint.pointA, constraint.pointB];
   return [];
 }
@@ -112,7 +112,7 @@ export function applyTrim(sketch: SketchFeature, plan: TrimPlan, createId: () =>
     : applyArcTrim(sketch, plan, plan.target, createId);
 }
 
-function findExistingPointId(sketch: SketchFeature, coord: Point): string | null {
+export function findExistingPointId(sketch: SketchFeature, coord: Point): string | null {
   let match: string | null = null;
   for (const entity of sketch.entities) {
     if (entity.kind !== 'point') continue;

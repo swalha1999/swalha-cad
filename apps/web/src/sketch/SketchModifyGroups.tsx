@@ -1,4 +1,4 @@
-import { ChevronDown, Scissors, Split } from 'lucide-react';
+import { ArrowRightToLine, ChevronDown, Scissors, Split } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { IconButton } from '../components/ui/IconButton.js';
@@ -18,6 +18,13 @@ interface ModifyVariant {
 const MODIFY_VARIANTS: ModifyVariant[] = [
   { tool: 'trim', label: 'Trim', icon: Scissors, shortcut: 'T', hint: 'Remove a curve segment up to its nearest intersections' },
   { tool: 'split', label: 'Split', icon: Split, shortcut: 'K', hint: 'Split a line or arc at a clicked interior point' },
+  {
+    tool: 'extend',
+    label: 'Extend',
+    icon: ArrowRightToLine,
+    shortcut: 'E',
+    hint: 'Extend a line or arc endpoint to the nearest curve ahead of it',
+  },
 ];
 
 function iconNode(Icon: ComponentType): ReactNode {
