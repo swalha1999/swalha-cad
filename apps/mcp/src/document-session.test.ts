@@ -90,6 +90,19 @@ describe('DocumentSession.applyCommand', () => {
     expect(onDisk.entities).toEqual([]);
   });
 
+  it('maps an unknown feature reference to a structured feature_not_found error without mutating', async () => {
+    const filePath = join(dir, 'design.swcad.json');
+    const session = await DocumentSession.open(filePath);
+
+    await expect(
+      session.applyCommand({ type: 'feature.update', id: 'missing', patch: { name: 'Renamed' } }),
+    ).rejects.toMatchObject({ code: 'feature_not_found' });
+
+    expect(session.getDocument().features).toEqual([]);
+    const onDisk = JSON.parse(await readFile(filePath, 'utf8'));
+    expect(onDisk.features).toEqual([]);
+  });
+
   it('never leaves a partial temp file behind after persisting', async () => {
     const filePath = join(dir, 'design.swcad.json');
     const session = await DocumentSession.open(filePath);

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import type { CadCommand, CadDocumentV2 } from '@swalha-cad/document';
-import { applyCommand, parseCadDocument, UnknownEntityError } from '@swalha-cad/document';
+import { applyCommand, parseCadDocument, UnknownEntityError, UnknownFeatureError } from '@swalha-cad/document';
 
 const EMPTY_DOCUMENT: CadDocumentV2 = { schemaVersion: 2, units: 'mm', entities: [], features: [] };
 
@@ -94,6 +94,9 @@ export class DocumentSession {
     } catch (error) {
       if (error instanceof UnknownEntityError) {
         throw new DocumentSessionError('entity_not_found', error.message);
+      }
+      if (error instanceof UnknownFeatureError) {
+        throw new DocumentSessionError('feature_not_found', error.message);
       }
       throw error;
     }

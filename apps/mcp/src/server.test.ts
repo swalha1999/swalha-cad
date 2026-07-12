@@ -35,7 +35,7 @@ function jsonOf<T>(result: Record<string, unknown>): T {
 }
 
 describe('createCadMcpServer', () => {
-  it('advertises all five CAD tools', async () => {
+  it('advertises the full entity, sketch, and extrude tool surface', async () => {
     let counter = 0;
     const session = await DocumentSession.open(filePath, { createId: () => `id-${++counter}` });
     const server = createCadMcpServer(session);
@@ -44,10 +44,17 @@ describe('createCadMcpServer', () => {
     const { tools } = await client.listTools();
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'add_constraint',
+      'add_sketch_entity',
+      'create_or_update_extrude',
       'create_primitive',
+      'create_sketch',
       'delete_entity',
       'export_stl',
+      'get_feature',
       'list_entities',
+      'list_features',
+      'solve_sketch',
       'update_entity',
     ]);
   });
