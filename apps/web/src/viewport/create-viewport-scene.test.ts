@@ -78,6 +78,7 @@ vi.mock('./create-transform-controls.js', () => ({
 }));
 
 const { createViewportScene } = await import('./create-viewport-scene.js');
+const { PLANE_HALF } = await import('./origin-planes.js');
 
 function seedDocument(): CadDocumentV2 {
   return {
@@ -845,6 +846,48 @@ describe('createViewportScene', () => {
 
     scene.dispose();
     expect(scene.scene.children).toHaveLength(0);
+  });
+
+  it('frames the origin planes centrally within the viewport without clipping', () => {
+    // The empty startup workspace at the real viewport canvas aspect (~892x788).
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: { schemaVersion: 2, units: 'mm', entities: [], features: [] },
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 892, height: 788 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const camera = scene.getActiveCamera();
+    scene.scene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+
+    const groups = scene.scene.children.filter((child) => typeof child.userData['planeId'] === 'string');
+    expect(groups).toHaveLength(3);
+
+    let maxX = 0;
+    let maxY = 0;
+    let maxRadius = 0;
+    for (const group of groups) {
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const ndc = new Vector3(sx * PLANE_HALF, sy * PLANE_HALF, 0).applyMatrix4(group.matrixWorld).project(camera);
+          maxX = Math.max(maxX, Math.abs(ndc.x));
+          maxY = Math.max(maxY, Math.abs(ndc.y));
+          maxRadius = Math.max(maxRadius, Math.hypot(ndc.x, ndc.y));
+        }
+      }
+    }
+
+    // Every plane corner stays inside the frame with real breathing room on all sides (no wall-like clipping).
+    expect(maxX).toBeLessThan(0.9);
+    expect(maxY).toBeLessThan(0.8);
+    // ...yet the cluster is still a prominent, central presence rather than a distant dot.
+    expect(maxRadius).toBeGreaterThan(0.35);
+
+    scene.dispose();
   });
 
   it('populates the support collector from a body face click in support mode', () => {

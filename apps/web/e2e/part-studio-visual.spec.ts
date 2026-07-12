@@ -46,6 +46,32 @@ async function samplePixel(page: Page, offset: { dx: number; dy: number } = { dx
   );
 }
 
+/**
+ * Reads back a set of canvas pixels at fractional (0..1) positions. The WebGL
+ * canvas is cleared transparent (alpha 0), so any drawn geometry — the origin
+ * planes here — is the only thing with a non-zero alpha. This exercises the real
+ * WebGL render (catching a false empty-canvas capture) rather than masking it.
+ */
+async function samplePixelsAt(page: Page, points: { fx: number; fy: number }[]): Promise<[number, number, number, number][]> {
+  return page.$eval(
+    '.viewport__canvas',
+    (canvas: HTMLCanvasElement, pts: { fx: number; fy: number }[]) => {
+      const probe = document.createElement('canvas');
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext('2d')!;
+      ctx.drawImage(canvas, 0, 0);
+      return pts.map(({ fx, fy }) => {
+        const x = Math.min(canvas.width - 1, Math.max(0, Math.round(fx * canvas.width)));
+        const y = Math.min(canvas.height - 1, Math.max(0, Math.round(fy * canvas.height)));
+        const d = ctx.getImageData(x, y, 1, 1).data;
+        return [d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0] as [number, number, number, number];
+      });
+    },
+    points,
+  );
+}
+
 /** Asserts two axis-aligned boxes do not overlap (a small epsilon tolerates shared borders). */
 function expectNoOverlap(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): void {
   const disjoint = a.x + a.width <= b.x + 1 || b.x + b.width <= a.x + 1 || a.y + a.height <= b.y + 1 || b.y + b.height <= a.y + 1;
@@ -93,6 +119,45 @@ test.describe('Part Studio visual regression at 1440x900', () => {
 
     await hideViewport(page);
     await expect(page).toHaveScreenshot('part-studio.png');
+  });
+
+  test('startup: origin planes render in real WebGL, compact and centred (no empty-canvas capture)', async ({ page }) => {
+    await page.goto('/');
+    // Give the render loop several frames to draw the translucent planes.
+    await page.waitForTimeout(500);
+
+    // The three principal planes are present in the Default geometry tree...
+    const tree = page.getByRole('navigation', { name: 'Scene tree' });
+    for (const label of ['Top', 'Front', 'Right']) {
+      await expect(tree.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+
+    // ...and, crucially, actually rendered: the central cluster where all three
+    // translucent blue planes overlap must have real (non-empty) blue-tinted pixels.
+    const centre = await samplePixelsAt(page, [
+      { fx: 0.5, fy: 0.5 },
+      { fx: 0.46, fy: 0.52 },
+      { fx: 0.54, fy: 0.48 },
+      { fx: 0.5, fy: 0.56 },
+    ]);
+    const drawn = centre.filter(([, , , a]) => a > 0);
+    expect(drawn.length, 'the origin planes must actually render (non-empty WebGL)').toBeGreaterThanOrEqual(3);
+    const bluish = drawn.filter(([r, , b]) => b > r);
+    expect(bluish.length, 'the rendered planes must read blue, not flat/empty').toBeGreaterThanOrEqual(3);
+
+    // Compact framing: the planes never clip the top edge — the top-centre strip is
+    // clear (transparent) sky above the cluster, proving no wall-like overflow.
+    const top = await samplePixelsAt(page, [
+      { fx: 0.5, fy: 0.02 },
+      { fx: 0.4, fy: 0.03 },
+      { fx: 0.6, fy: 0.03 },
+    ]);
+    for (const [, , , a] of top) {
+      expect(a, 'planes must not clip the top of the viewport').toBe(0);
+    }
+
+    // Retain a real (non-masked) screenshot artifact of the startup viewport for review.
+    await page.screenshot({ path: 'e2e/screenshots/startup-viewport.png' });
   });
 
   test('added bodies render lit (unselected) and gain a blue highlight when selected', async ({ page }) => {

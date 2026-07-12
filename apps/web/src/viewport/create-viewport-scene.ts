@@ -15,6 +15,7 @@ import {
   DirectionalLight,
   DoubleSide,
   GridHelper,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   Raycaster,
@@ -28,7 +29,7 @@ import { createTransformControls } from './create-transform-controls.js';
 import { faceOverlayPositions } from './face-overlay.js';
 import { isClick } from './is-click.js';
 import type { OriginPlaneId } from './origin-planes.js';
-import { createOriginPlanes } from './origin-planes.js';
+import { PLANE_HALF, createOriginPlanes } from './origin-planes.js';
 import { pickEntityId } from './pick-entity.js';
 import type { FacePick } from './pick-face.js';
 import { pickFace } from './pick-face.js';
@@ -117,7 +118,7 @@ const FACE_HOVER_HEX = 0x5b8cff;
 const FACE_SELECT_HEX = 0x2f6bff;
 /** Opacity applied to every body's material while the model is dimmed (armed face pick or an active sketch). */
 const DIMMED_OPACITY = 0.3;
-const DEFAULT_CAMERA_POSITION = [140, 110, 160] as const;
+const DEFAULT_CAMERA_POSITION = [146, 115, 167] as const;
 const DEFAULT_ORTHOGRAPHIC_VIEW_HEIGHT = 220;
 
 /** Unit view directions for the floating navigation controls and view cube; `home` restores the default isometric-ish angle. */
@@ -164,8 +165,15 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   keyLight.position.set(160, 220, 140);
   const fillLight = new DirectionalLight(0xffffff, 0.45);
   fillLight.position.set(-140, 90, -120);
-  const groundGrid = new GridHelper(400, 40, 0xc3cad4, 0xe1e5eb);
-  groundGrid.position.y = -40;
+  // A faint ground grid, sitting just below the compact origin planes, adds subtle
+  // depth without competing with them (the reference grid is barely-there).
+  const groundGrid = new GridHelper(400, 40, 0xd2d8e2, 0xe7ebf1);
+  groundGrid.position.y = -PLANE_HALF;
+  const groundGridMaterial = groundGrid.material as LineBasicMaterial | LineBasicMaterial[];
+  for (const material of Array.isArray(groundGridMaterial) ? groundGridMaterial : [groundGridMaterial]) {
+    material.transparent = true;
+    material.opacity = 0.5;
+  }
   sceneSync.scene.add(ambientLight, keyLight, fillLight, groundGrid);
 
   // The three translucent, blue-outlined origin planes (Top/Front/Right) framing
@@ -331,6 +339,8 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
 
   let frameId = requestAnimationFrame(function loop() {
     controls.update();
+    // Hold the plane labels at a constant on-screen size as the camera orbits/zooms.
+    originPlanes.update(activeCamera);
     renderer.render(sceneSync.scene, activeCamera);
     frameId = requestAnimationFrame(loop);
   });

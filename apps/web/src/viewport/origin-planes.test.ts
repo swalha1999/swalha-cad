@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Mesh, MeshBasicMaterial } from 'three';
-import { createOriginPlanes, ORIGIN_PLANE_LABEL } from './origin-planes.js';
+import type { Mesh, MeshBasicMaterial, PlaneGeometry } from 'three';
+import { OrthographicCamera, PerspectiveCamera } from 'three';
+import { PLANE_HALF, ORIGIN_PLANE_LABEL, createOriginPlanes, labelWorldSize } from './origin-planes.js';
 
 describe('createOriginPlanes', () => {
   it('builds the three principal planes tagged with their plane ids', () => {
@@ -13,6 +14,44 @@ describe('createOriginPlanes', () => {
 
   it('maps each plane to its Onshape label', () => {
     expect(ORIGIN_PLANE_LABEL).toEqual({ XY: 'Top', XZ: 'Front', YZ: 'Right' });
+  });
+
+  it('sizes each plane compactly around the origin rather than as oversized walls', () => {
+    // The reference frames the origin with compact, breathing-room planes — not
+    // walls that fill and clip through the viewport.
+    expect(PLANE_HALF).toBeLessThanOrEqual(60);
+    expect(PLANE_HALF).toBeGreaterThanOrEqual(35);
+
+    const planes = createOriginPlanes();
+    for (const mesh of planes.pickTargets) {
+      const params = (mesh.geometry as PlaneGeometry).parameters;
+      expect(params.width).toBeCloseTo(PLANE_HALF * 2, 6);
+      expect(params.height).toBeCloseTo(PLANE_HALF * 2, 6);
+      expect(params.width).toBeLessThanOrEqual(130);
+    }
+    planes.dispose();
+  });
+
+  it('sizes a perspective label to a constant on-screen size regardless of plane distance', () => {
+    const camera = new PerspectiveCamera(50, 1.13, 0.1, 1000);
+    const near = labelWorldSize(camera, 100);
+    const far = labelWorldSize(camera, 250);
+    // World size scales in proportion to distance, so the projected screen size stays constant
+    // — this is what keeps Top/Front/Right balanced instead of one label ballooning.
+    expect(far.height / near.height).toBeCloseTo(2.5, 5);
+    expect(far.width / far.height).toBeCloseTo(near.width / near.height, 6);
+    // The label reads small and legible at the default framing distance — never a giant wall of text.
+    const atDefault = labelWorldSize(camera, 250).height;
+    expect(atDefault).toBeGreaterThan(3);
+    expect(atDefault).toBeLessThan(22);
+  });
+
+  it('sizes an orthographic label from the frustum height, independent of distance', () => {
+    const camera = new OrthographicCamera(-100, 100, 110, -110, 0.1, 1000);
+    const nearOrtho = labelWorldSize(camera, 50);
+    const farOrtho = labelWorldSize(camera, 500);
+    expect(nearOrtho.height).toBeCloseTo(farOrtho.height, 6);
+    expect(nearOrtho.height).toBeGreaterThan(0);
   });
 
   it('lays each plane into its principal orientation', () => {
