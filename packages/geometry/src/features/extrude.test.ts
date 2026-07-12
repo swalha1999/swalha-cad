@@ -150,6 +150,25 @@ describe('extrudeSketch — rectangle profiles', () => {
     expect(min).toEqual([0, 0, -3]);
     expect(max).toEqual([4, 2, 3]);
   });
+
+  it('places a reversed normal extrusion between -depth and 0 along the plane normal', () => {
+    const result = extrudeSketch(sketch(rectangleEntities()), { depth: 5, direction: 'normal', reverse: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectWellFormedSolid(result.mesh);
+    const { min, max } = computeMeshBounds(result.mesh);
+    // Reversed: the sweep runs to the far side of the XY plane, z in [-5, 0].
+    expect(min).toEqual([0, 0, -5]);
+    expect(max).toEqual([4, 2, 0]);
+  });
+
+  it('ignores reverse for a symmetric extrusion (already balanced about the plane)', () => {
+    const forward = extrudeSketch(sketch(rectangleEntities()), { depth: 6, direction: 'symmetric', reverse: false });
+    const reversed = extrudeSketch(sketch(rectangleEntities()), { depth: 6, direction: 'symmetric', reverse: true });
+    expect(forward.ok && reversed.ok).toBe(true);
+    if (!forward.ok || !reversed.ok) return;
+    expect(Array.from(reversed.mesh.positions)).toEqual(Array.from(forward.mesh.positions));
+  });
 });
 
 describe('extrudeSketch — circle profiles', () => {

@@ -75,6 +75,7 @@ function extrudeBody(feature: ExtrudeFeature, sketch: SketchFeature, mesh: Index
       entities: sketch.entities,
       depth: feature.depth,
       direction: feature.direction,
+      reverse: feature.reverse ?? false,
     })}`,
     geometry: { kind: 'mesh', mesh },
   };
@@ -137,7 +138,11 @@ export function evaluateDocument(document: CadDocumentV2): EvaluatedDocument {
       continue;
     }
 
-    const result = extrudeSketch(sketch, { depth: feature.depth, direction: feature.direction });
+    const result = extrudeSketch(sketch, {
+      depth: feature.depth,
+      direction: feature.direction,
+      reverse: feature.reverse ?? false,
+    });
     if (!result.ok) {
       diagnostics.push(diagnostic(feature, result.error.code, result.error.message, result.error.issues));
       continue;

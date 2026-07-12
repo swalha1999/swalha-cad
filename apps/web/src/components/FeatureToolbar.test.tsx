@@ -41,10 +41,25 @@ describe('FeatureToolbar', () => {
     expect(store.getState().document.features).toHaveLength(1);
   });
 
-  it('keeps the Extrude tool reserved for a later milestone', () => {
+  it('disables Extrude when the document has no sketch to extrude', () => {
     renderToolbar();
 
     expect(screen.getByRole('button', { name: 'Extrude' })).toBeDisabled();
+  });
+
+  it('enables Extrude once a sketch exists and opens the extrude task on click', () => {
+    const store = createCadStore({
+      schemaVersion: 2,
+      units: 'mm',
+      entities: [],
+      features: [{ id: 'sk1', kind: 'sketch', name: 'Sketch 1', plane: 'XY', entities: [], constraints: [], visible: true }],
+    });
+    renderToolbar(store);
+
+    const extrude = screen.getByRole('button', { name: 'Extrude' });
+    expect(extrude).toBeEnabled();
+    fireEvent.click(extrude);
+    expect(store.getState().extrude).not.toBeNull();
   });
 
   it('offers buttons to add each primitive kind', () => {

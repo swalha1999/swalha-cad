@@ -22,6 +22,13 @@ const SKETCH_PLANES: { plane: SketchPlane; label: string }[] = [
 export function FeatureToolbar() {
   const enterSketch = useCadStore((state) => state.enterSketch);
   const inSketch = useCadStore((state) => state.sketch !== null);
+  const startExtrude = useCadStore((state) => state.startExtrude);
+  const extruding = useCadStore((state) => state.extrude !== null);
+  const hasSketch = useCadStore((state) => state.document.features.some((feature) => feature.kind === 'sketch'));
+
+  // Extrude is a Part Studio operation: available once a sketch exists, never while
+  // sketching, and pressed while its contextual task panel is open.
+  const extrudeDisabled = inSketch || !hasSketch;
 
   return (
     <div className="feature-toolbar" role="toolbar" aria-label="Feature toolbar">
@@ -35,8 +42,14 @@ export function FeatureToolbar() {
           onSelect: () => enterSketch(plane),
         }))}
       />
-      <Tooltip content="Extrude (coming in a later milestone)">
-        <IconButton aria-label="Extrude" icon={<Move3d />} disabled aria-pressed={false} />
+      <Tooltip content={extrudeDisabled ? 'Create a sketch profile to extrude' : 'Extrude a sketch profile into a solid'}>
+        <IconButton
+          aria-label="Extrude"
+          icon={<Move3d />}
+          disabled={extrudeDisabled}
+          aria-pressed={extruding}
+          onClick={() => startExtrude()}
+        />
       </Tooltip>
 
       <Separator orientation="vertical" className="feature-toolbar__separator" />

@@ -15,6 +15,12 @@ export interface ExtrudeOptions {
   readonly depth: number;
   /** `normal` sweeps from the plane to `+normal * depth`; `symmetric` straddles the plane by `depth / 2` each way. */
   readonly direction: 'normal' | 'symmetric';
+  /**
+   * Flips a `normal` sweep to the far side of the plane (`0` → `-depth` instead
+   * of `0` → `+depth`), keeping the same watertight outward-facing solid. Has no
+   * effect on a `symmetric` sweep, which is already balanced about the plane.
+   */
+  readonly reverse?: boolean;
 }
 
 export type ExtrudeErrorCode = 'invalid-depth' | 'invalid-profile' | 'degenerate-profile';
@@ -124,7 +130,7 @@ function profileRing(sketch: SketchFeature, profile: SketchProfile): { ring: Vec
  * profiles.
  */
 export function extrudeSketch(sketch: SketchFeature, options: ExtrudeOptions): ExtrudeResult {
-  const { depth, direction } = options;
+  const { depth, direction, reverse = false } = options;
   if (!Number.isFinite(depth) || depth <= 0) {
     return fail('invalid-depth', `Extrusion depth must be finite and positive, got ${depth}.`);
   }
@@ -139,8 +145,12 @@ export function extrudeSketch(sketch: SketchFeature, options: ExtrudeOptions): E
   const { ring } = resolved;
 
   const frame = getPlaneFrame(sketch.plane);
-  const bottomOffset = direction === 'symmetric' ? -depth / 2 : 0;
-  const topOffset = direction === 'symmetric' ? depth / 2 : depth;
+  // Both caps are always placed with `topOffset > bottomOffset`, so the +normal
+  // top cap stays the higher face and every outward normal/winding is preserved
+  // regardless of direction: symmetric straddles the plane, a normal sweep runs
+  // 0 → +depth, and a reversed normal sweep runs -depth → 0 (the far side).
+  const bottomOffset = direction === 'symmetric' ? -depth / 2 : reverse ? -depth : 0;
+  const topOffset = direction === 'symmetric' ? depth / 2 : reverse ? 0 : depth;
 
   const positions: number[] = [];
   const normals: number[] = [];

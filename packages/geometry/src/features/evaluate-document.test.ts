@@ -167,6 +167,17 @@ describe('evaluateDocument — deterministic rebuild', () => {
     expect(computeMeshBounds(b.geometry.mesh).max[2]).toBeCloseTo(9, 5);
   });
 
+  it('rebuilds a different mesh and key when the extrusion is reversed', () => {
+    const forward = documentOf([], [sketch('s1', rectangleEntities()), extrude('e1', 's1', { depth: 5 })]);
+    const reversed = documentOf([], [sketch('s1', rectangleEntities()), extrude('e1', 's1', { depth: 5, reverse: true })]);
+    const a = meshBody(evaluateDocument(forward).bodies.find((b) => b.id === 'e1'));
+    const b = meshBody(evaluateDocument(reversed).bodies.find((b) => b.id === 'e1'));
+    expect(a.buildKey).not.toBe(b.buildKey);
+    // Forward sweeps +Z (z in [0,5]); reversed sweeps -Z (z in [-5,0]).
+    expect(computeMeshBounds(a.geometry.mesh).max[2]).toBeCloseTo(5, 5);
+    expect(computeMeshBounds(b.geometry.mesh).min[2]).toBeCloseTo(-5, 5);
+  });
+
   it('rebuilds a different mesh and key when the source sketch geometry changes', () => {
     const wider = rectangleEntities().map((e) => (e.id === 'p1' ? point('p1', 8, 0) : e));
     const widerWithP2 = wider.map((e) => (e.id === 'p2' ? point('p2', 8, 2) : e));

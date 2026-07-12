@@ -178,6 +178,7 @@ export const extrudeFeatureSchema = z
     sketchId: z.string(),
     depth: positiveFinite,
     direction: z.enum(['normal', 'symmetric']),
+    reverse: z.boolean().optional(),
     visible: z.boolean(),
   })
   .strict();

@@ -1,10 +1,11 @@
-import { Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import type { CadEntity, CadEntityPatch, CadFeature, Primitive, SketchConstraint, SketchFeature } from '@swalha-cad/document';
 import { useCadStore } from '../store/cad-store-context.js';
 import { selectActiveSketch, selectSelectedEntity, selectSelectedFeature } from '../store/cad-store.js';
 import { constraintUnit, constraintValue } from '../sketch/constraint-actions.js';
 import { ConstraintStatus } from '../sketch/ConstraintStatus.js';
 import { DimensionEditor } from '../sketch/DimensionEditor.js';
+import { ExtrudeDialog } from '../features/ExtrudeDialog.js';
 import { IconButton } from './ui/IconButton.js';
 import { NumericField } from './NumericField.js';
 import { TransformFields } from './TransformFields.js';
@@ -142,8 +143,9 @@ const FEATURE_KIND_LABEL: Record<CadFeature['kind'], string> = {
   extrude: 'Extruded solid',
 };
 
-/** Read-only summary for a selected feature (sketch or extrude); it is deleted via the header trash action. */
+/** Summary for a selected feature (sketch or extrude); an extrude also offers Edit, and both delete via the header trash action. */
 function FeatureContextContent({ feature }: { feature: CadFeature }) {
+  const editExtrude = useCadStore((state) => state.editExtrude);
   return (
     <div className="context-panel__content">
       <div className="field">
@@ -151,6 +153,17 @@ function FeatureContextContent({ feature }: { feature: CadFeature }) {
         <input id="feature-name" type="text" readOnly value={feature.name} />
       </div>
       <p className="context-panel__hint">{FEATURE_KIND_LABEL[feature.kind]}</p>
+      {feature.kind === 'extrude' ? (
+        <button
+          type="button"
+          className="btn btn--sm btn--outline"
+          aria-label={`Edit ${feature.name}`}
+          onClick={() => editExtrude(feature.id)}
+        >
+          <Pencil aria-hidden="true" />
+          Edit
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -169,13 +182,17 @@ export function ContextPanel() {
   const updateEntity = useCadStore((state) => state.updateEntity);
   const deleteSelected = useCadStore((state) => state.deleteSelected);
   const sketch = useCadStore(selectActiveSketch);
+  const extruding = useCadStore((state) => state.extrude !== null);
 
-  const selectionName = !sketch ? (entity?.name ?? feature?.name ?? null) : null;
+  // The active extrude task owns the panel (its own Confirm/Cancel actions); the
+  // header delete action only applies to a selected body/feature at rest.
+  const heading = extruding ? 'Extrude' : sketch ? 'Sketch' : 'Properties';
+  const selectionName = !sketch && !extruding ? (entity?.name ?? feature?.name ?? null) : null;
 
   return (
     <aside className="context-panel" aria-label="Properties">
       <div className="context-panel__header">
-        <h2 className="panel-heading">{sketch ? 'Sketch' : 'Properties'}</h2>
+        <h2 className="panel-heading">{heading}</h2>
         {selectionName ? (
           <IconButton
             aria-label={`Delete ${selectionName}`}
@@ -185,7 +202,9 @@ export function ContextPanel() {
           />
         ) : null}
       </div>
-      {sketch ? (
+      {extruding ? (
+        <ExtrudeDialog />
+      ) : sketch ? (
         <SketchContextContent sketch={sketch} />
       ) : entity ? (
         <ContextPanelContent entity={entity} updateEntity={updateEntity} />

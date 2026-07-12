@@ -7,6 +7,7 @@ import { FeatureTree } from './components/FeatureTree.js';
 import { ResizablePanel } from './components/ResizablePanel.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Viewport } from './components/Viewport.js';
+import { ExtrudePreview } from './features/ExtrudePreview.js';
 import { handleGlobalDelete } from './interactions/delete-keys.js';
 import { SketchWorkspace } from './sketch/SketchWorkspace.js';
 import { CadStoreProvider } from './store/cad-store-context.js';
@@ -30,6 +31,7 @@ function WorkspaceCenter() {
     <div className="part-studio__center">
       <Viewport />
       {inSketch ? <SketchWorkspace /> : null}
+      <ExtrudePreview />
     </div>
   );
 }

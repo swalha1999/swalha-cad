@@ -23,6 +23,8 @@ interface MenuState {
   y: number;
   target: DeletionTarget;
   name: string;
+  /** The extrude feature id when the row can be edited, else null (offers an Edit action). */
+  editableExtrudeId: string | null;
 }
 
 /**
@@ -41,6 +43,7 @@ export function FeatureTree() {
   const hoveredId = useCadStore((state) => state.hoveredId);
   const selectEntity = useCadStore((state) => state.selectEntity);
   const selectFeature = useCadStore((state) => state.selectFeature);
+  const editExtrude = useCadStore((state) => state.editExtrude);
   const setHovered = useCadStore((state) => state.setHovered);
   const requestDelete = useCadStore((state) => state.requestDelete);
 
@@ -53,7 +56,11 @@ export function FeatureTree() {
       if (target.kind === 'entity') selectEntity(target.id);
       else selectFeature(target.id);
     }
-    setMenu({ x: event.clientX, y: event.clientY, target, name });
+    const editableExtrudeId =
+      target.kind === 'feature' && features.some((feature) => feature.id === target.id && feature.kind === 'extrude')
+        ? target.id
+        : null;
+    setMenu({ x: event.clientX, y: event.clientY, target, name, editableExtrudeId });
   }
 
   function rowClass(base: string, selected: boolean, hovered: boolean): string {
@@ -89,6 +96,9 @@ export function FeatureTree() {
                     aria-current={selected}
                     aria-label={feature.name}
                     onClick={() => selectFeature(feature.id)}
+                    onDoubleClick={() => {
+                      if (feature.kind === 'extrude') editExtrude(feature.id);
+                    }}
                     onMouseEnter={() => setHovered(feature.id)}
                     onMouseLeave={() => setHovered(null)}
                     onContextMenu={(event) => openMenu(event, { kind: 'feature', id: feature.id }, feature.name, selected)}
@@ -136,6 +146,9 @@ export function FeatureTree() {
           x={menu.x}
           y={menu.y}
           items={[
+            ...(menu.editableExtrudeId
+              ? [{ id: 'edit', label: `Edit ${menu.name}`, onSelect: () => editExtrude(menu.editableExtrudeId!) }]
+              : []),
             {
               id: 'delete',
               label: `Delete ${menu.name}`,

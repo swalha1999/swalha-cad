@@ -1,3 +1,4 @@
+import type { CadDocumentV2 } from '@swalha-cad/document';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CadStoreProvider } from '../store/cad-store-context.js';
@@ -12,6 +13,18 @@ function renderPanel(store = createCadStore(buildTestDocument())) {
     </CadStoreProvider>,
   );
   return store;
+}
+
+function documentWithExtrude(): CadDocumentV2 {
+  return {
+    schemaVersion: 2,
+    units: 'mm',
+    entities: [],
+    features: [
+      { id: 'sk-1', kind: 'sketch', name: 'Sketch 1', plane: 'XY', entities: [], constraints: [], visible: true },
+      { id: 'ex-1', kind: 'extrude', name: 'Extrude 1', sketchId: 'sk-1', depth: 10, direction: 'normal', visible: true },
+    ],
+  };
 }
 
 describe('ContextPanel', () => {
@@ -37,6 +50,24 @@ describe('ContextPanel', () => {
     expect(screen.getByLabelText('Height')).toHaveValue(30);
     expect(screen.getByLabelText('Depth')).toHaveValue(20);
     expect(screen.getAllByText('mm').length).toBeGreaterThan(0);
+  });
+
+  it('renders the Extrude task panel while an extrude task is active', () => {
+    const store = createCadStore(documentWithExtrude());
+    store.getState().startExtrude();
+    renderPanel(store);
+
+    expect(screen.getByRole('heading', { name: 'Extrude' })).toBeInTheDocument();
+    expect(screen.getByRole('form', { name: 'Extrude' })).toBeInTheDocument();
+  });
+
+  it('offers an Edit action for a selected extrude feature', () => {
+    const store = createCadStore(documentWithExtrude());
+    store.getState().selectFeature('ex-1');
+    renderPanel(store);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Extrude 1' }));
+    expect(store.getState().extrude).toMatchObject({ editingFeatureId: 'ex-1' });
   });
 
   it('shows cylinder-specific dimension fields', () => {

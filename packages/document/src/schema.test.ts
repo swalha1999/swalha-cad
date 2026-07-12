@@ -271,6 +271,17 @@ describe('parseCadDocument — V2 documents', () => {
     expect(parseCadDocument(doc).success).toBe(false);
   });
 
+  it('accepts an extrude feature with an optional reverse flag and round-trips it', () => {
+    const sketch = circleSketch();
+    const doc = { schemaVersion: 2, units: 'mm', entities: [], features: [sketch, extrudeOf(sketch.id, { reverse: true })] };
+
+    const parsed = parseCadDocument(doc);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    const extrude = parsed.data.features.find((feature) => feature.kind === 'extrude');
+    expect(extrude).toMatchObject({ kind: 'extrude', reverse: true });
+  });
+
   it('rejects unknown fields on an extrude feature (strict schema)', () => {
     const sketch = circleSketch();
     const extrude = { ...extrudeOf(sketch.id), extra: 'nope' };

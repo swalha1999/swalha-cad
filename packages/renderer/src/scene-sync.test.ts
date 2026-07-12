@@ -208,6 +208,21 @@ describe('SceneSync', () => {
     expect(disposeSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('rebuilds a derived mesh when the extrusion is reversed', () => {
+    const sync = new SceneSync();
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5 })]));
+    const geometryBefore = (sync.objectFor('e1') as Mesh).geometry;
+
+    sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5, reverse: true })]));
+
+    const after = sync.objectFor('e1') as Mesh;
+    // A reversed sweep is different geometry, so the mesh is rebuilt (not reused).
+    expect(after.geometry).not.toBe(geometryBefore);
+    after.geometry.computeBoundingBox();
+    expect(after.geometry.boundingBox!.min.z).toBeCloseTo(-5, 4);
+    expect(after.geometry.boundingBox!.max.z).toBeCloseTo(0, 4);
+  });
+
   it('reuses a derived mesh across re-syncs when the feature is unchanged', () => {
     const sync = new SceneSync();
     sync.sync(documentOf([], [rectangleSketch('s1'), extrude('e1', 's1')]));

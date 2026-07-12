@@ -7,6 +7,7 @@ import type {
   CommandHistory,
   DeletionPlan,
   DeletionTarget,
+  ExtrudeFeature,
   Primitive,
   SketchConstraint,
   SketchFeature,
@@ -34,6 +35,14 @@ import { pickForDimension, resolveFromSelection } from '../sketch/dimension.js';
 import { lineTangentAtPoint } from '../sketch/tangent.js';
 import { DEFAULT_SNAP_SETTINGS } from '../sketch/snap-settings.js';
 import type { SnapSettings, SnapTarget } from '../sketch/snap-settings.js';
+import {
+  DEFAULT_EXTRUDE_DEPTH,
+  MAX_EXTRUDE_DEPTH,
+  MIN_EXTRUDE_DEPTH,
+  listSketchFeatures,
+  validateExtrudeSession,
+} from '../features/extrude-session.js';
+import type { ExtrudeSession, ExtrudeValidation } from '../features/extrude-session.js';
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
 import { DEFAULT_POLYGON_SIDES } from '../sketch/tools/types.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
@@ -101,6 +110,15 @@ export interface ConstraintOutcome {
   message: string | null;
 }
 
+/** The result of confirming an extrude task, for callers that surface a message. */
+export interface ExtrudeOutcome {
+  /** True when exactly one feature command reached history; false when validation rejected it. */
+  committed: boolean;
+  /** The created or edited extrude feature's id when committed, else `null`. */
+  featureId: string | null;
+  message: string | null;
+}
+
 export interface CadStoreState {
   document: CadDocumentV2;
   history: CommandHistory;
@@ -124,6 +142,13 @@ export interface CadStoreState {
   canRedo: boolean;
   /** Non-null while the focused 2D sketch workspace is active. */
   sketch: SketchSession | null;
+  /**
+   * Non-null while the contextual Extrude task panel is open (creating or
+   * editing an extrusion). Purely transient: the document is not mutated until
+   * {@link confirmExtrude}, so {@link cancelExtrude} restores the exact prior
+   * state and a live preview is derived, never committed.
+   */
+  extrude: ExtrudeSession | null;
   /** Selected sketch entity ids (points/lines/circles) driving constraint availability; empty outside sketch mode. */
   sketchSelection: string[];
   /** The constraint whose dimension the properties panel is editing, or `null`. */
@@ -229,6 +254,31 @@ export interface CadStoreState {
   toggleSnapTarget: (target: SnapTarget) => void;
   /** Shows or hides the sketch grid (visual only; does not affect grid snapping). */
   setGridVisible: (visible: boolean) => void;
+  /**
+   * Opens the contextual Extrude task for a new extrusion, seeding the source
+   * collector from a selected sketch (or the only sketch present) and a default
+   * depth/direction. No-op while sketching or when the document has no sketch.
+   */
+  startExtrude: () => void;
+  /** Opens the Extrude task to edit an existing extrude feature, loading its current depth/direction/reverse. */
+  editExtrude: (featureId: string) => void;
+  /** Sets the source sketch the active extrude task will consume (validated against the document). */
+  setExtrudeSource: (sketchId: string) => void;
+  /** Sets the active extrude task's sweep depth in mm (clamped to the shared manipulator range). */
+  setExtrudeDepth: (depth: number) => void;
+  /** Sets the active extrude task's operation direction (normal or symmetric). */
+  setExtrudeDirection: (direction: 'normal' | 'symmetric') => void;
+  /** Sets whether a normal extrusion sweeps to the far side of the plane; ignored while symmetric. */
+  setExtrudeReverse: (reverse: boolean) => void;
+  /**
+   * Commits the active extrude task as exactly one feature command — a
+   * `feature.create` for a new extrusion or a `feature.update` when editing —
+   * closing the panel and selecting the resulting solid. Rejects (mutating
+   * nothing, leaving the panel open) when the profile/depth is invalid.
+   */
+  confirmExtrude: () => ExtrudeOutcome;
+  /** Closes the Extrude task without mutating the document, restoring the exact prior state and removing the preview. */
+  cancelExtrude: () => void;
 }
 
 const IDENTITY_ROTATION_SCALE = { rotationDeg: [0, 0, 0], scale: [1, 1, 1] } as const;
@@ -349,6 +399,30 @@ function reconcileSketchAfterHistory(
   };
 }
 
+/** Clamps a requested extrude depth into the shared numeric-field / manipulator range. */
+function clampExtrudeDepth(depth: number): number {
+  if (!Number.isFinite(depth)) return MIN_EXTRUDE_DEPTH;
+  return Math.min(MAX_EXTRUDE_DEPTH, Math.max(MIN_EXTRUDE_DEPTH, depth));
+}
+
+/**
+ * Drops an active extrude task whose editing target or source sketch vanished
+ * from the document (e.g. after an undo). Returns an empty patch when the
+ * session is unaffected so unrelated history steps leave it untouched.
+ */
+function reconcileExtrudeAfterHistory(state: CadStoreState, document: CadDocumentV2): Partial<Pick<CadStoreState, 'extrude'>> {
+  if (!state.extrude) return {};
+  const editingGone =
+    state.extrude.editingFeatureId !== null &&
+    !document.features.some((feature) => feature.id === state.extrude?.editingFeatureId && feature.kind === 'extrude');
+  const sourceGone =
+    state.extrude.sketchId !== null &&
+    !document.features.some((feature) => feature.id === state.extrude?.sketchId && feature.kind === 'sketch');
+  if (editingGone) return { extrude: null };
+  if (sourceGone) return { extrude: { ...state.extrude, sketchId: null } };
+  return {};
+}
+
 /**
  * Task 10 ships no primitive-creation UI (that is Task 11), so the shell
  * needs a small non-empty document to exercise the scene tree, viewport,
@@ -426,6 +500,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     canUndo: false,
     canRedo: false,
     sketch: null,
+    extrude: null,
     sketchSelection: [],
     selectedConstraintId: null,
     sketchSolve: null,
@@ -542,6 +617,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         hoveredId: null,
         pendingDeletion: null,
         sketch: null,
+        extrude: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: null,
@@ -562,6 +638,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
         pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
+        ...reconcileExtrudeAfterHistory(state, nextHistory.present),
       });
     },
 
@@ -579,6 +656,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         hoveredId: reconcileHover(nextHistory.present, state.hoveredId),
         pendingDeletion: null,
         ...reconcileSketchAfterHistory(state, nextHistory.present),
+        ...reconcileExtrudeAfterHistory(state, nextHistory.present),
       });
     },
 
@@ -614,6 +692,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           cursorSnap: null,
           dimension: null,
         },
+        extrude: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
@@ -1029,6 +1108,131 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     },
 
     setGridVisible: (visible) => set({ gridVisible: visible }),
+
+    startExtrude: () => {
+      const state = get();
+      if (state.sketch) return; // extrusion is a Part Studio operation, not a sketch-mode one
+      const sketches = listSketchFeatures(state.document);
+      if (sketches.length === 0) return;
+
+      // Seed the source collector: a pre-selected sketch, else the sole sketch, else nothing.
+      const selected = state.document.features.find((feature) => feature.id === state.selectedFeatureId);
+      const sourceId =
+        selected && selected.kind === 'sketch'
+          ? selected.id
+          : sketches.length === 1
+            ? sketches[0]!.id
+            : null;
+
+      set({
+        extrude: { editingFeatureId: null, sketchId: sourceId, depth: DEFAULT_EXTRUDE_DEPTH, direction: 'normal', reverse: false },
+        selectedEntityId: null,
+        selectedFeatureId: null,
+      });
+    },
+
+    editExtrude: (featureId) => {
+      const state = get();
+      if (state.sketch) return;
+      const feature = state.document.features.find((candidate) => candidate.id === featureId);
+      if (!feature || feature.kind !== 'extrude') return;
+      set({
+        extrude: {
+          editingFeatureId: feature.id,
+          sketchId: feature.sketchId,
+          depth: feature.depth,
+          direction: feature.direction,
+          reverse: feature.reverse ?? false,
+        },
+        selectedEntityId: null,
+        selectedFeatureId: feature.id,
+      });
+    },
+
+    setExtrudeSource: (sketchId) => {
+      const state = get();
+      if (!state.extrude) return;
+      const feature = state.document.features.find((candidate) => candidate.id === sketchId);
+      if (!feature || feature.kind !== 'sketch') return;
+      set({ extrude: { ...state.extrude, sketchId } });
+    },
+
+    setExtrudeDepth: (depth) => {
+      const session = get().extrude;
+      if (!session) return;
+      set({ extrude: { ...session, depth: clampExtrudeDepth(depth) } });
+    },
+
+    setExtrudeDirection: (direction) => {
+      const session = get().extrude;
+      if (!session) return;
+      set({ extrude: { ...session, direction } });
+    },
+
+    setExtrudeReverse: (reverse) => {
+      const session = get().extrude;
+      if (!session) return;
+      set({ extrude: { ...session, reverse } });
+    },
+
+    confirmExtrude: () => {
+      const state = get();
+      const session = state.extrude;
+      if (!session) return { committed: false, featureId: null, message: 'No extrusion in progress.' };
+
+      const validation = validateExtrudeSession(state.document, session);
+      if (validation.status !== 'ok' || !session.sketchId) {
+        return { committed: false, featureId: null, message: validation.message };
+      }
+
+      let featureId: string;
+      let command: CadCommand;
+      if (session.editingFeatureId) {
+        featureId = session.editingFeatureId;
+        command = {
+          type: 'feature.update',
+          id: featureId,
+          patch: {
+            sketchId: session.sketchId,
+            depth: session.depth,
+            direction: session.direction,
+            reverse: session.reverse,
+          },
+        };
+      } else {
+        featureId = createId();
+        const feature: ExtrudeFeature = {
+          id: featureId,
+          kind: 'extrude',
+          name: nextFeatureName(state.document.features, 'Extrude'),
+          sketchId: session.sketchId,
+          depth: session.depth,
+          direction: session.direction,
+          reverse: session.reverse,
+          visible: true,
+        };
+        command = { type: 'feature.create', feature };
+      }
+
+      const nextHistory = applyCommandToHistory(state.history, command);
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        extrude: null,
+        selectedFeatureId: featureId,
+        selectedEntityId: null,
+      });
+      return { committed: true, featureId, message: null };
+    },
+
+    cancelExtrude: () => {
+      if (!get().extrude) return;
+      // The document was never mutated during the task, so clearing the session
+      // restores the exact prior state and removes the derived preview.
+      set({ extrude: null });
+    },
     };
   });
 }
@@ -1040,6 +1244,12 @@ export function selectSelectedEntity(state: CadStoreState): CadEntity | undefine
 /** The currently selected feature (sketch or extrude), or `undefined` when none is selected. */
 export function selectSelectedFeature(state: CadStoreState): CadFeature | undefined {
   return state.document.features.find((feature) => feature.id === state.selectedFeatureId);
+}
+
+/** Confirmation-readiness of the active extrude task (with a diagnostic when blocked), or `null` when no task is open. */
+export function selectExtrudeValidation(state: CadStoreState): ExtrudeValidation | null {
+  if (!state.extrude) return null;
+  return validateExtrudeSession(state.document, state.extrude);
 }
 
 /** The `SketchFeature` currently being edited, or `null` when not in sketch mode. */

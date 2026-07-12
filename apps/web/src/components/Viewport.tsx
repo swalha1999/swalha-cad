@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { SketchPlane } from '@swalha-cad/document';
+import { buildExtrudePreviewDocument } from '../features/extrude-session.js';
 import { useCadStore, useCadStoreApi } from '../store/cad-store-context.js';
 import { createViewportScene } from '../viewport/create-viewport-scene.js';
 import type { StandardView, ViewportScene } from '../viewport/create-viewport-scene.js';
@@ -18,7 +19,16 @@ export function Viewport() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sceneRef = useRef<ViewportScene | null>(null);
 
-  const cadDocument = useCadStore((state) => state.document);
+  const committedDocument = useCadStore((state) => state.document);
+  const extrudeSession = useCadStore((state) => state.extrude);
+  // The rendered document augments the committed one with the active extrude
+  // task's candidate solid, so the live 3D preview flows through the normal
+  // evaluate/scene-sync pipeline without ever touching the document/history.
+  // Falls back to the committed document (same reference) when no task is open.
+  const cadDocument = useMemo(
+    () => buildExtrudePreviewDocument(committedDocument, extrudeSession),
+    [committedDocument, extrudeSession],
+  );
   const projection = useCadStore((state) => state.cameraProjection);
   const selectedEntityId = useCadStore((state) => state.selectedEntityId);
   const selectedFeatureId = useCadStore((state) => state.selectedFeatureId);

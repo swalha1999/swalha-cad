@@ -73,6 +73,13 @@ export interface ExtrudeFeature {
   sketchId: string;
   depth: number;
   direction: 'normal' | 'symmetric';
+  /**
+   * Flips a `normal` sweep to the opposite side of the plane (from `0` to
+   * `-depth` instead of `0` to `+depth`). Ignored for a `symmetric` sweep, which
+   * already straddles the plane. Optional so V2 documents saved before reverse
+   * existed still load; absent is treated as `false`.
+   */
+  reverse?: boolean | undefined;
   visible: boolean;
 }
 

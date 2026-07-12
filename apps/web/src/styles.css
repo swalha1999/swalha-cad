@@ -1510,3 +1510,85 @@ body {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Extrude task: contextual panel + in-canvas depth manipulator */
+
+.extrude-dialog__source {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--shell-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--shell-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.extrude-dialog__directions {
+  display: flex;
+  gap: 6px;
+}
+
+.extrude-dialog__directions .btn {
+  flex: 1 1 0;
+}
+
+.extrude-dialog__reverse {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.extrude-dialog__diagnostic {
+  margin: 10px 0 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in oklch, var(--status-conflict, #d64545) 12%, transparent);
+  color: var(--status-conflict, #d64545);
+  font-size: 12px;
+}
+
+.extrude-dialog__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.extrude-dialog__actions .btn {
+  flex: 1 1 0;
+}
+
+.extrude-preview {
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  z-index: 30;
+  pointer-events: none;
+}
+
+.extrude-preview__handle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  border: 1px solid var(--accent, #3b5bfd);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--accent, #3b5bfd) 14%, var(--shell-surface, #fff));
+  color: var(--accent, #3b5bfd);
+  cursor: ns-resize;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.extrude-preview__handle:focus-visible {
+  outline: 2px solid var(--accent, #3b5bfd);
+  outline-offset: 2px;
+}
+
+.extrude-preview__value {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}

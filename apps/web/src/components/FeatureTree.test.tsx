@@ -90,6 +90,31 @@ describe('FeatureTree', () => {
     expect(store.getState().selectedEntityId).toBeNull();
   });
 
+  it('opens the extrude task when an extrude row is double-clicked', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Extrude 1' }));
+
+    expect(store.getState().extrude).toMatchObject({ editingFeatureId: 'ex-1', depth: 10 });
+  });
+
+  it('offers an Edit action in the extrude row context menu', () => {
+    const store = renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Extrude 1' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit Extrude 1' }));
+
+    expect(store.getState().extrude).toMatchObject({ editingFeatureId: 'ex-1' });
+  });
+
+  it('offers no Edit action for a sketch row', () => {
+    renderFeatureTree(createCadStore(documentWithFeatures()));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Sketch 1' }));
+
+    expect(screen.queryByRole('menuitem', { name: 'Edit Sketch 1' })).not.toBeInTheDocument();
+  });
+
   it('updates the shared hover state when the pointer enters and leaves a row', () => {
     const store = renderFeatureTree(createCadStore(documentWithFeatures()));
     const row = screen.getByRole('button', { name: 'Sketch 1' });

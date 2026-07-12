@@ -263,6 +263,14 @@ describe('exportDocumentToBinaryStl', () => {
     expect(bounds.max[2]).toBeCloseTo(5);
   });
 
+  it('exports a reversed extrude on the far side of the sketch plane', () => {
+    const doc = makeDocument([], [rectangleSketch('s1'), extrude('e1', 's1', { depth: 5, reverse: true })]);
+    const bounds = boundsOf(parseBinaryStl(exportDocumentToBinaryStl(doc)).facets);
+    // Reversed: the solid sweeps to z in [-5, 0] instead of [0, 5].
+    expect(bounds.min[2]).toBeCloseTo(-5);
+    expect(bounds.max[2]).toBeCloseTo(0);
+  });
+
   it('never exports standalone sketches — they are non-solid', () => {
     const doc = makeDocument([], [rectangleSketch('s1')]);
     const parsed = parseBinaryStl(exportDocumentToBinaryStl(doc));
