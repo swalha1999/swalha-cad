@@ -3,6 +3,7 @@ import { detectSketchProfile } from '@swalha-cad/geometry';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { openSketchOnPlane } from './helpers.js';
 
 // Onshape-parity proof for the sketch Mirror tool, driven end-to-end through the real
 // browser UI: mirror half an off-grid profile across a construction centerline that
@@ -38,8 +39,7 @@ function parseBinaryStl(bytes: Buffer): { triangleCount: number; maxZ: number; f
 }
 
 async function enterXySketch(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Sketch' }).click();
-  await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+  await openSketchOnPlane(page, 'Top');
   await expect(page.getByRole('toolbar', { name: 'Sketch tools' })).toBeVisible();
 }
 

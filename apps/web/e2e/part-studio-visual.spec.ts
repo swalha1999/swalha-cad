@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { openSketchOnPlane } from './helpers.js';
 
 // Visual + layout release gate for the Onshape-inspired Part Studio at the primary
 // 1440x900 desktop size. The non-deterministic WebGL viewport canvas is hidden in
@@ -94,8 +95,13 @@ test.describe('Part Studio visual regression at 1440x900', () => {
     await expect(page).toHaveScreenshot('part-studio.png');
   });
 
-  test('default bodies render lit (unselected) and gain a blue highlight when selected', async ({ page }) => {
+  test('added bodies render lit (unselected) and gain a blue highlight when selected', async ({ page }) => {
     await page.goto('/');
+    // A fresh Part Studio is demo-free: add a body at the origin, then deselect it
+    // with an empty left-center click (clear of the centred body and the overlays).
+    await page.getByRole('button', { name: 'Add Cylinder' }).click();
+    const box = (await page.locator('.viewport__canvas').boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.5);
     await page.waitForTimeout(300);
 
     // Unselected: the origin cylinder must be visibly lit, never flat black/empty.
@@ -115,8 +121,7 @@ test.describe('Part Studio visual regression at 1440x900', () => {
 
   test('sketch mode: the expanded grouped tool toolbar is laid out cleanly', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Sketch' }).click();
-    await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+    await openSketchOnPlane(page, 'Top');
 
     const toolbar = page.getByRole('toolbar', { name: 'Sketch tools' });
     await expect(toolbar).toBeVisible();
@@ -140,8 +145,7 @@ test.describe('Part Studio visual regression at 1440x900', () => {
     await page.goto('/');
 
     // Build a quick constrained-enough profile and finish the sketch.
-    await page.getByRole('button', { name: 'Sketch' }).click();
-    await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+    await openSketchOnPlane(page, 'Top');
     const canvas = page.getByRole('img', { name: 'Sketch canvas' });
     await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
     await clickCanvas(page, canvas, 0.35, 0.4);

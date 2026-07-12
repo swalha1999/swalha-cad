@@ -12,6 +12,7 @@ vi.mock('./viewport/create-viewport-scene.js', () => ({
       setHover: vi.fn(),
       setFacePickMode: vi.fn(),
       setSelectedFace: vi.fn(),
+      setSelectedPlane: vi.fn(),
       setModelDimmed: vi.fn(),
       alignCameraToFace: vi.fn(),
       snapshotCamera: vi.fn(),
@@ -38,11 +39,13 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'Scene tree' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Properties' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Part Studio 1' })).toBeInTheDocument();
-    expect(screen.getByText('Box')).toBeInTheDocument();
+    // A fresh Part Studio is demo-free: no bodies until the user adds one.
+    expect(screen.queryByRole('button', { name: 'Box' })).not.toBeInTheDocument();
   });
 
   it('synchronizes selection: clicking a feature tree row updates the context panel', () => {
     render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /add cylinder/i }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Cylinder' }));
 
@@ -79,6 +82,7 @@ describe('App', () => {
 
   it('deletes the selected body when Delete is pressed in the viewport context', () => {
     render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /add box/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Box' }));
 
     fireEvent.keyDown(window, { key: 'Delete' });
@@ -88,6 +92,7 @@ describe('App', () => {
 
   it('does not delete the selection when Backspace is typed inside a numeric field', () => {
     render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /add box/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Box' }));
     // The properties panel now shows editable dimension fields for the box.
     const widthField = screen.getByLabelText('Width');

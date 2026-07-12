@@ -2,6 +2,7 @@ import type { CadDocumentV2, ExtrudeFeature } from '@swalha-cad/document';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { openSketchOnPlane } from './helpers.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -45,8 +46,7 @@ async function clickCanvas(page: Page, canvas: Locator, fx: number, fy: number):
 }
 
 async function enterXySketch(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Sketch' }).click();
-  await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+  await openSketchOnPlane(page, 'Top');
   await expect(page.getByRole('toolbar', { name: 'Sketch tools' })).toBeVisible();
   return page.getByRole('img', { name: 'Sketch canvas' });
 }

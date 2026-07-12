@@ -10,6 +10,7 @@ function sceneTree(page: Page) {
 test.describe('Onshape-style deletion', () => {
   test('deletes a visible body with the Delete key and restores it with undo', async ({ page }) => {
     await page.goto('/');
+    await page.getByRole('button', { name: 'Add Box' }).click();
     const tree = sceneTree(page);
     await expect(tree.getByRole('button', { name: 'Box' })).toBeVisible();
 
@@ -26,6 +27,7 @@ test.describe('Onshape-style deletion', () => {
 
   test('deletes a body through the right-click context menu', async ({ page }) => {
     await page.goto('/');
+    await page.getByRole('button', { name: 'Add Cylinder' }).click();
     const tree = sceneTree(page);
 
     await tree.getByRole('button', { name: 'Cylinder' }).click({ button: 'right' });
@@ -40,6 +42,7 @@ test.describe('Onshape-style deletion', () => {
 
   test('typing Backspace inside a numeric dimension field never deletes geometry', async ({ page }) => {
     await page.goto('/');
+    await page.getByRole('button', { name: 'Add Box' }).click();
     const tree = sceneTree(page);
 
     // Select the box so its editable dimensions appear in the properties panel.

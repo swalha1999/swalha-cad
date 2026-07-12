@@ -1764,3 +1764,104 @@ body {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* Sketch support-selection command: top-center banner + right task panel */
+
+.sketch-support-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(520px, calc(100% - 48px));
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--shell-accent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--shell-accent) 12%, var(--shell-panel));
+  color: var(--shell-accent-strong);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+.sketch-support-banner__icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.sketch-support-banner__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sketch-support-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.sketch-support-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sketch-support-panel__header .context-panel__section {
+  margin: 0;
+}
+
+.sketch-support-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sketch-support-panel__collector {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sketch-support-panel__required {
+  color: var(--destructive);
+}
+
+.sketch-support-panel__value {
+  display: block;
+  padding: 7px 10px;
+  border: 1px dashed var(--shell-border);
+  border-radius: 6px;
+  background: var(--shell-input, var(--shell-panel));
+  font-size: 12.5px;
+  color: var(--shell-text-muted);
+}
+
+.sketch-support-panel__value--filled {
+  border-style: solid;
+  border-color: var(--shell-accent);
+  background: color-mix(in oklch, var(--shell-accent) 10%, var(--shell-panel));
+  color: var(--shell-accent-strong);
+  font-weight: 600;
+}
+
+.sketch-support-panel__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
+
+/* Origin-plane rows double as sketch supports; the draft row is a non-interactive marker. */
+.feature-tree__plane-row {
+  cursor: pointer;
+}
+
+.feature-tree__draft-row {
+  cursor: default;
+}

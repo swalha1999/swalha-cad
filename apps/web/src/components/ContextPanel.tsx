@@ -6,6 +6,7 @@ import { constraintUnit, constraintValue } from '../sketch/constraint-actions.js
 import { ConstraintStatus } from '../sketch/ConstraintStatus.js';
 import { DimensionEditor } from '../sketch/DimensionEditor.js';
 import { ExtrudeDialog } from '../features/ExtrudeDialog.js';
+import { SketchSupportPanel } from '../features/SketchSupportPanel.js';
 import { IconButton } from './ui/IconButton.js';
 import { NumericField } from './NumericField.js';
 import { TransformFields } from './TransformFields.js';
@@ -183,11 +184,13 @@ export function ContextPanel() {
   const deleteSelected = useCadStore((state) => state.deleteSelected);
   const sketch = useCadStore(selectActiveSketch);
   const extruding = useCadStore((state) => state.extrude !== null);
+  const inSupport = useCadStore((state) => state.sketchSupport !== null);
 
-  // The active extrude task owns the panel (its own Confirm/Cancel actions); the
-  // header delete action only applies to a selected body/feature at rest.
-  const heading = extruding ? 'Extrude' : sketch ? 'Sketch' : 'Properties';
-  const selectionName = !sketch && !extruding ? (entity?.name ?? feature?.name ?? null) : null;
+  // The active extrude task and the sketch support command each own the panel with
+  // their own Confirm/Cancel actions; the header delete action only applies to a
+  // selected body/feature at rest.
+  const heading = inSupport || sketch ? 'Sketch' : extruding ? 'Extrude' : 'Properties';
+  const selectionName = !sketch && !extruding && !inSupport ? (entity?.name ?? feature?.name ?? null) : null;
 
   return (
     <aside className="context-panel" aria-label="Properties">
@@ -202,7 +205,9 @@ export function ContextPanel() {
           />
         ) : null}
       </div>
-      {extruding ? (
+      {inSupport ? (
+        <SketchSupportPanel />
+      ) : extruding ? (
         <ExtrudeDialog />
       ) : sketch ? (
         <SketchContextContent sketch={sketch} />

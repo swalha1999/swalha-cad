@@ -2,6 +2,7 @@ import type { CadDocumentV2, SketchFeature } from '@swalha-cad/document';
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { openSketchOnPlane } from './helpers.js';
 
 // Release-gate proof for FACE-BASED SKETCHING driven end-to-end through the real
 // browser: extrude a box, select one of its planar faces (both preselect and
@@ -49,22 +50,9 @@ async function exportStlZBounds(page: Page): Promise<{ min: number; max: number 
 const viewportCanvas = (page: Page) => page.locator('canvas.viewport__canvas');
 const sketchCanvas = (page: Page) => page.getByRole('img', { name: 'Sketch canvas' });
 
-/** Deletes the three seed primitives so the origin is clear for a deterministic centre-of-canvas face pick. */
-async function clearSeedBodies(page: Page): Promise<void> {
-  const sceneTree = page.getByRole('navigation', { name: 'Scene tree' });
-  for (const name of ['Cylinder', 'Box', 'L-Bracket']) {
-    const row = sceneTree.getByRole('button', { name, exact: true });
-    if ((await row.count()) === 0) continue;
-    await row.click();
-    await page.keyboard.press('Delete');
-    await expect(sceneTree.getByRole('button', { name, exact: true })).toHaveCount(0);
-  }
-}
-
 /** Builds a box centred on the world origin: a symmetric-extruded rectangle drawn about the canvas centre. */
 async function buildSymmetricBox(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Sketch', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+  await openSketchOnPlane(page, 'Top');
   const canvas = sketchCanvas(page);
   await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   // Symmetric about the canvas centre → the profile (and the solid) centre on the world XY origin.
@@ -102,16 +90,15 @@ async function drawRectangleAndFinish(page: Page): Promise<void> {
 
 test('preselect a top face, sketch on it, and extrude a stacked solid', async ({ page }) => {
   await page.goto('/');
-  await clearSeedBodies(page);
   await buildSymmetricBox(page);
 
   // The symmetric box top cap (+Z at z=20) faces the front orthographic camera.
   await orthoView(page, 'Front view');
 
-  // Preselect-then-Sketch: click the face in the viewport, then use the menu item.
+  // Preselect-then-Sketch: click the face in the viewport to preselect it, then the
+  // single Sketch action enters immediately (no support command needed).
   await clickFraction(page, viewportCanvas(page), 0.5, 0.5);
   await page.getByRole('button', { name: 'Sketch', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'On selected face' }).click();
   await expect(page.getByRole('toolbar', { name: 'Sketch tools' })).toBeVisible();
 
   await drawRectangleAndFinish(page);
@@ -135,17 +122,17 @@ test('preselect a top face, sketch on it, and extrude a stacked solid', async ({
 
 test('command-then-face on a side face, then save and reload', async ({ page }) => {
   await page.goto('/');
-  await clearSeedBodies(page);
   await buildSymmetricBox(page);
 
   // A side wall (+X) faces the right orthographic camera, centred on the origin.
   await orthoView(page, 'Right view');
 
-  // Command-then-face: arm from the menu, then click the face in the viewport.
+  // Command-then-face: press Sketch with no preselection to open the support command,
+  // click the face to populate the collector, then confirm to enter the sketch.
   await page.getByRole('button', { name: 'Sketch', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'On a face' }).click();
-  await expect(page.getByText('Select a planar face to sketch on')).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Select a sketch plane or planar face' })).toBeVisible();
   await clickFraction(page, viewportCanvas(page), 0.5, 0.5);
+  await page.getByRole('button', { name: 'Create sketch' }).click();
   await expect(page.getByRole('toolbar', { name: 'Sketch tools' })).toBeVisible();
 
   await drawRectangleAndFinish(page);

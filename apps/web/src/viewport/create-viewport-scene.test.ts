@@ -826,6 +826,111 @@ describe('createViewportScene', () => {
     scene.dispose();
   });
 
+  it('renders the three origin planes tagged with their plane ids', () => {
+    const scene = createViewportScene({
+      canvas: buildCanvas(),
+      document: { schemaVersion: 2, units: 'mm', entities: [], features: [] },
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+    });
+
+    const planeIds = scene.scene.children
+      .map((child) => child.userData['planeId'])
+      .filter((id): id is string => id !== undefined)
+      .sort();
+    expect(planeIds).toEqual(['XY', 'XZ', 'YZ']);
+
+    scene.dispose();
+    expect(scene.scene.children).toHaveLength(0);
+  });
+
+  it('populates the support collector from a body face click in support mode', () => {
+    const onSupportFaceClick = vi.fn();
+    const onSupportPlaneClick = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: seedDocument(),
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+      onSupportFaceClick,
+      onSupportPlaneClick,
+    });
+    scene.setFacePickMode('support');
+    scene.setModelDimmed(true);
+
+    // The box sits at the origin, projecting to canvas centre: a click hits its face.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100 }));
+
+    expect(onSupportFaceClick).toHaveBeenCalledTimes(1);
+    expect(onSupportFaceClick.mock.calls[0]![0].bodyId).toBe('box-1');
+    expect(onSupportPlaneClick).not.toHaveBeenCalled();
+
+    scene.dispose();
+  });
+
+  it('populates the support collector from an origin plane click when no body face is hit', () => {
+    const onSupportFaceClick = vi.fn();
+    const onSupportPlaneClick = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: { schemaVersion: 2, units: 'mm', entities: [], features: [] },
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+      onSupportFaceClick,
+      onSupportPlaneClick,
+    });
+    scene.setFacePickMode('support');
+
+    // Empty document: a centre click misses every body but hits an origin plane.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 100, clientY: 100 }));
+
+    expect(onSupportFaceClick).not.toHaveBeenCalled();
+    expect(onSupportPlaneClick).toHaveBeenCalledTimes(1);
+    expect(['XY', 'XZ', 'YZ']).toContain(onSupportPlaneClick.mock.calls[0]![0]);
+
+    scene.dispose();
+  });
+
+  it('does not choose a support when a support-mode click misses both faces and planes', () => {
+    const onSupportFaceClick = vi.fn();
+    const onSupportPlaneClick = vi.fn();
+    const canvas = buildCanvas();
+    const scene = createViewportScene({
+      canvas,
+      document: { schemaVersion: 2, units: 'mm', entities: [], features: [] },
+      projection: 'perspective',
+      selectedEntityId: null,
+      viewport: { width: 200, height: 200 },
+      onSelect: vi.fn(),
+      onTransformChange: vi.fn(),
+      onSupportFaceClick,
+      onSupportPlaneClick,
+    });
+    scene.setFacePickMode('support');
+
+    // A far-corner click looking down the isometric default view misses the planes entirely.
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 199, clientY: 1 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 199, clientY: 1 }));
+
+    expect(onSupportFaceClick).not.toHaveBeenCalled();
+    expect(onSupportPlaneClick).not.toHaveBeenCalled();
+
+    scene.dispose();
+  });
+
   it('highlights a distinct selected-face overlay and disposes it on teardown', () => {
     const scene = createViewportScene({
       canvas: buildCanvas(),

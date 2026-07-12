@@ -16,6 +16,7 @@ function buildFakeScene(onSelectArg: (id: string | null) => void) {
     setHover: vi.fn(),
     setFacePickMode: vi.fn(),
     setSelectedFace: vi.fn(),
+    setSelectedPlane: vi.fn(),
     setModelDimmed: vi.fn(),
     alignCameraToFace: vi.fn(),
     snapshotCamera: vi.fn(),

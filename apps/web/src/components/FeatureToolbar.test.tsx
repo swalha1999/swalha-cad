@@ -21,24 +21,34 @@ describe('FeatureToolbar', () => {
     expect(screen.getByRole('toolbar', { name: 'Feature toolbar' })).toBeInTheDocument();
   });
 
-  it('opens an origin-plane picker from the Sketch action', () => {
-    renderToolbar();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sketch' }));
-
-    expect(screen.getByRole('menuitem', { name: 'Top Plane (XY)' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Front Plane (XZ)' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Right Plane (YZ)' })).toBeInTheDocument();
-  });
-
-  it('enters a sketch on the chosen plane through the store', () => {
+  it('opens the support-selection command from the Sketch action (no immediate XY sketch)', () => {
     const store = renderToolbar();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sketch' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Front Plane (XZ)' }));
+
+    expect(store.getState().sketchSupport).not.toBeNull();
+    expect(store.getState().sketch).toBeNull();
+    expect(store.getState().document.features).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Sketch' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('enters a sketch immediately when an origin plane is preselected', () => {
+    const store = renderToolbar();
+    store.getState().selectPlane('XZ');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sketch' }));
 
     expect(store.getState().sketch?.plane).toBe('XZ');
+    expect(store.getState().sketchSupport).toBeNull();
     expect(store.getState().document.features).toHaveLength(1);
+  });
+
+  it('disables primitive creation while a sketch support is being chosen', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().startSketch();
+    renderToolbar(store);
+
+    expect(screen.getByRole('button', { name: /add box/i })).toBeDisabled();
   });
 
   it('disables Extrude when the document has no sketch to extrude', () => {

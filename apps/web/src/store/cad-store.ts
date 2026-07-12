@@ -216,6 +216,52 @@ export interface FaceSketchOutcome {
   message: string | null;
 }
 
+/**
+ * A chosen or candidate sketch support: an origin plane (Top/Front/Right) or a
+ * planar face of a solid body. The single currency the support-selection command
+ * collects and then creates a sketch on.
+ */
+export type SketchSupport =
+  | { kind: 'plane'; plane: SketchPlane }
+  | { kind: 'face'; face: SketchFaceSupport };
+
+/**
+ * The nonblocking Sketch support-selection command state — the Onshape
+ * "Select a sketch plane or planar face" step that opens when the Sketch action
+ * is pressed with no valid preselection. It shows an active draft feature row, a
+ * top-center banner, and a right task panel with a required support collector and
+ * checkmark/cancel. Nothing reaches the document until
+ * {@link CadStoreState.confirmSketchSupport}, so
+ * {@link CadStoreState.cancelSketchSupport} restores the exact prior selection
+ * with no mutation and no history entry.
+ */
+export interface SketchSupportSession {
+  /** The candidate support currently in the collector, or null while it is empty. */
+  support: SketchSupport | null;
+  /** The provisional feature name shown as the active draft row in the tree (e.g. "Sketch 1"). */
+  draftName: string;
+  /** The selection to restore verbatim on cancel (the command never mutates the document). */
+  prior: {
+    selectedEntityId: string | null;
+    selectedFeatureId: string | null;
+    selectedFace: SketchFaceSupport | null;
+    selectedPlane: SketchPlane | null;
+  };
+  /** The most recent invalid-target diagnostic (curved face / unavailable body), or null. */
+  error: string | null;
+}
+
+/** The result of starting or confirming a sketch support, so a caller can surface why it was rejected. */
+export interface SketchSupportOutcome {
+  /** True when a sketch was created and entered; false when the command opened or was rejected. */
+  entered: boolean;
+  reason: 'entered' | 'command' | 'no-support' | 'not-planar' | 'unknown' | 'busy';
+  /** The created sketch feature's id when entered, else null. */
+  featureId: string | null;
+  /** A human-readable diagnostic when rejected, else null. */
+  message: string | null;
+}
+
 /** The result of confirming an extrude task, for callers that surface a message. */
 export interface ExtrudeOutcome {
   /** True when exactly one feature command reached history; false when validation rejected it. */
@@ -268,6 +314,21 @@ export interface CadStoreState {
   faceSketchArmed: boolean;
   /** The most recent face-sketch rejection message (curved/unknown face), or `null`. Surfaced then dismissed. */
   faceSketchError: string | null;
+  /**
+   * The nonblocking Sketch support-selection command, or `null` when not choosing
+   * a support. While non-null the Sketch action is mid-command: an active draft
+   * row shows in the tree, a banner and right task panel are open, and the
+   * viewport enables origin planes and planar faces for hover/preselection.
+   * See {@link SketchSupportSession}.
+   */
+  sketchSupport: SketchSupportSession | null;
+  /**
+   * A preselected origin plane (Top/Front/Right) awaiting a Sketch action, or
+   * `null`. Mutually exclusive with entity/feature/face selection: choosing a
+   * plane here then pressing Sketch enters the sketch immediately (the Onshape
+   * preselect-then-Sketch path).
+   */
+  selectedPlane: SketchPlane | null;
   /**
    * Non-null while the contextual Extrude task panel is open (creating or
    * editing an extrusion). Purely transient: the document is not mutated until
@@ -339,6 +400,36 @@ export interface CadStoreState {
   setFaceSketchArmed: (armed: boolean) => void;
   /** Clears the most recent face-sketch rejection message. */
   dismissFaceSketchError: () => void;
+  /** Preselects (or clears with `null`) an origin plane as the sketch support candidate; mutually exclusive with entity/feature/face selection. */
+  selectPlane: (plane: SketchPlane | null) => void;
+  /**
+   * The unified Sketch entry point (the single Sketch action). With an origin
+   * plane or a valid planar face already preselected it creates and enters the
+   * sketch immediately (preselect-then-Sketch); otherwise it opens the
+   * nonblocking support-selection command state. No-op (returns a `busy` outcome)
+   * while already sketching, extruding, or choosing a support.
+   */
+  startSketch: () => SketchSupportOutcome;
+  /**
+   * Routes an origin-plane choice: while the support command is active it
+   * populates the collector (clearing any diagnostic); otherwise it preselects
+   * the plane. Backs both the tree plane rows and a 3D plane click.
+   */
+  chooseSketchPlane: (plane: SketchPlane) => void;
+  /**
+   * Records a clicked face as the candidate support, validating it is planar; a
+   * curved or unavailable face sets a diagnostic and leaves the collector as-is.
+   * No-op unless the support command is active.
+   */
+  chooseSketchFace: (face: SketchFaceSupport) => void;
+  /**
+   * Confirms the support-selection command: creates and enters the sketch on the
+   * collected support through history. Rejects (keeping the command open with a
+   * diagnostic) when no support is chosen or the face is no longer planar.
+   */
+  confirmSketchSupport: () => SketchSupportOutcome;
+  /** Cancels the support-selection command, restoring the exact prior selection with no document mutation or history entry. */
+  cancelSketchSupport: () => void;
   /** Selects (or clears with `null`) the active drawing tool, resetting its pending step. */
   setSketchTool: (tool: SketchToolKind | null) => void;
   /** Toggles whether newly drawn geometry is construction geometry. */
@@ -671,37 +762,17 @@ function reconcileExtrudeAfterHistory(state: CadStoreState, document: CadDocumen
 }
 
 /**
- * Task 10 ships no primitive-creation UI (that is Task 11), so the shell
- * needs a small non-empty document to exercise the scene tree, viewport,
- * and properties panel without an empty-state dead end.
+ * A fresh Part Studio starts empty — no demo solids or primitives — matching the
+ * Onshape-style clean startup: just the origin and the Top/Front/Right planes
+ * (rendered by the viewport/tree from geometry, not stored bodies) and a
+ * `Parts (0)` list. Save/load/history/export therefore all start deterministic
+ * and demo-free. Bodies and features are only ever added through user commands.
  */
-function createSeedDocument(): CadDocumentV2 {
+function createStartupDocument(): CadDocumentV2 {
   return {
     schemaVersion: 2,
     units: 'mm',
-    entities: [
-      {
-        id: 'seed-box',
-        name: 'Box',
-        primitive: { kind: 'box', width: 40, height: 30, depth: 20 },
-        transform: { translation: [-60, 0, 0], ...IDENTITY_ROTATION_SCALE },
-        visible: true,
-      },
-      {
-        id: 'seed-cylinder',
-        name: 'Cylinder',
-        primitive: { kind: 'cylinder', radius: 15, height: 40, segments: 32 },
-        transform: { translation: [0, 0, 0], ...IDENTITY_ROTATION_SCALE },
-        visible: true,
-      },
-      {
-        id: 'seed-l-bracket',
-        name: 'L-Bracket',
-        primitive: { kind: 'lBracket', width: 50, height: 50, depth: 20, thickness: 8 },
-        transform: { translation: [60, 0, 0], ...IDENTITY_ROTATION_SCALE },
-        visible: true,
-      },
-    ],
+    entities: [],
     features: [],
   };
 }
@@ -712,7 +783,7 @@ export interface CadStoreOptions {
 }
 
 /** Vanilla (framework-agnostic) store factory so tests can create isolated instances. */
-export function createCadStore(document: CadDocumentV2 = createSeedDocument(), options: CadStoreOptions = {}) {
+export function createCadStore(document: CadDocumentV2 = createStartupDocument(), options: CadStoreOptions = {}) {
   const createId = options.createId ?? (() => crypto.randomUUID());
 
   return createStore<CadStoreState>((set, get) => {
@@ -753,6 +824,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     selectedFace: null,
     faceSketchArmed: false,
     faceSketchError: null,
+    sketchSupport: null,
+    selectedPlane: null,
     extrude: null,
     sketchSelection: [],
     selectedConstraintId: null,
@@ -764,14 +837,14 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       if (id !== null && !get().document.entities.some((entity) => entity.id === id)) {
         return;
       }
-      set({ selectedEntityId: id, selectedFeatureId: null, selectedFace: null });
+      set({ selectedEntityId: id, selectedFeatureId: null, selectedFace: null, selectedPlane: null });
     },
 
     selectFeature: (id) => {
       if (id !== null && !get().document.features.some((feature) => feature.id === id)) {
         return;
       }
-      set({ selectedFeatureId: id, selectedEntityId: null, selectedFace: null });
+      set({ selectedFeatureId: id, selectedEntityId: null, selectedFace: null, selectedPlane: null });
     },
 
     selectBody: (bodyId) => {
@@ -781,14 +854,14 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
       }
       const state = get();
       if (state.document.entities.some((entity) => entity.id === bodyId)) {
-        set({ selectedEntityId: bodyId, selectedFeatureId: null });
+        set({ selectedEntityId: bodyId, selectedFeatureId: null, selectedPlane: null });
       } else if (state.document.features.some((feature) => feature.id === bodyId)) {
         // A picked derived body carries its owning feature's id: select the feature.
-        set({ selectedFeatureId: bodyId, selectedEntityId: null });
+        set({ selectedFeatureId: bodyId, selectedEntityId: null, selectedPlane: null });
       }
     },
 
-    clearSelection: () => set({ selectedEntityId: null, selectedFeatureId: null, selectedFace: null }),
+    clearSelection: () => set({ selectedEntityId: null, selectedFeatureId: null, selectedFace: null, selectedPlane: null }),
 
     setHovered: (id) => set({ hoveredId: id }),
 
@@ -874,6 +947,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedFace: null,
         faceSketchArmed: false,
         faceSketchError: null,
+        sketchSupport: null,
+        selectedPlane: null,
         extrude: null,
         sketchSelection: [],
         selectedConstraintId: null,
@@ -962,6 +1037,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedFace: null,
         faceSketchArmed: false,
         faceSketchError: null,
+        sketchSupport: null,
+        selectedPlane: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
@@ -984,6 +1061,129 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
     setFaceSketchArmed: (armed) => set({ faceSketchArmed: armed, faceSketchError: null }),
 
     dismissFaceSketchError: () => set({ faceSketchError: null }),
+
+    selectPlane: (plane) => {
+      if (plane === null) {
+        set({ selectedPlane: null });
+        return;
+      }
+      // Mutually exclusive preselection: choosing a plane clears any body/feature/face selection.
+      set({ selectedPlane: plane, selectedEntityId: null, selectedFeatureId: null, selectedFace: null });
+    },
+
+    startSketch: () => {
+      const state = get();
+      if (state.sketch || state.extrude || state.sketchSupport) {
+        return { entered: false, reason: 'busy', featureId: null, message: 'Finish the current operation first.' };
+      }
+      // Preselect-then-Sketch: an origin plane already chosen enters immediately.
+      if (state.selectedPlane) {
+        const featureId = get().enterSketch(state.selectedPlane);
+        return { entered: true, reason: 'entered', featureId, message: null };
+      }
+      // A preselected planar face enters immediately; a curved/missing one opens the
+      // command with the diagnostic so the user can pick another support.
+      if (state.selectedFace) {
+        const outcome = get().enterSketchOnFace(state.selectedFace);
+        if (outcome.entered) return { entered: true, reason: 'entered', featureId: outcome.featureId, message: null };
+        set({
+          sketchSupport: {
+            support: null,
+            draftName: nextFeatureName(state.document.features, 'Sketch'),
+            prior: {
+              selectedEntityId: state.selectedEntityId,
+              selectedFeatureId: state.selectedFeatureId,
+              selectedFace: state.selectedFace,
+              selectedPlane: state.selectedPlane,
+            },
+            error: outcome.message,
+          },
+        });
+        return { entered: false, reason: 'not-planar', featureId: null, message: outcome.message };
+      }
+      // No valid preselection: open the nonblocking support-selection command state.
+      set({
+        sketchSupport: {
+          support: null,
+          draftName: nextFeatureName(state.document.features, 'Sketch'),
+          prior: {
+            selectedEntityId: state.selectedEntityId,
+            selectedFeatureId: state.selectedFeatureId,
+            selectedFace: state.selectedFace,
+            selectedPlane: state.selectedPlane,
+          },
+          error: null,
+        },
+        // The command owns selection while active; clear it so nothing else reads as picked.
+        selectedEntityId: null,
+        selectedFeatureId: null,
+        selectedFace: null,
+        selectedPlane: null,
+      });
+      return { entered: false, reason: 'command', featureId: null, message: null };
+    },
+
+    chooseSketchPlane: (plane) => {
+      const state = get();
+      if (state.sketchSupport) {
+        set({ sketchSupport: { ...state.sketchSupport, support: { kind: 'plane', plane }, error: null } });
+        return;
+      }
+      get().selectPlane(plane);
+    },
+
+    chooseSketchFace: (face) => {
+      const state = get();
+      const session = state.sketchSupport;
+      if (!session) return;
+      const resolved = resolveFaceFrame(state.document, face.bodyId, face.faceId);
+      if (!resolved.ok) {
+        const message =
+          resolved.reason === 'not-planar'
+            ? 'That face is curved — sketches can only be placed on flat faces.'
+            : 'That face is no longer available.';
+        set({ sketchSupport: { ...session, error: message } });
+        return;
+      }
+      set({ sketchSupport: { ...session, support: { kind: 'face', face }, error: null } });
+    },
+
+    confirmSketchSupport: () => {
+      const state = get();
+      const session = state.sketchSupport;
+      if (!session) {
+        return { entered: false, reason: 'unknown', featureId: null, message: 'No sketch support command is active.' };
+      }
+      if (!session.support) {
+        const message = 'Select a sketch plane or planar face.';
+        set({ sketchSupport: { ...session, error: message } });
+        return { entered: false, reason: 'no-support', featureId: null, message };
+      }
+      if (session.support.kind === 'plane') {
+        const featureId = get().enterSketch(session.support.plane);
+        return { entered: true, reason: 'entered', featureId, message: null };
+      }
+      const outcome = get().enterSketchOnFace(session.support.face);
+      if (outcome.entered) return { entered: true, reason: 'entered', featureId: outcome.featureId, message: null };
+      // The face turned curved/unavailable since it was collected: keep the command open with the diagnostic.
+      set({ sketchSupport: { ...session, support: null, error: outcome.message } });
+      return { entered: false, reason: outcome.reason === 'not-planar' ? 'not-planar' : 'unknown', featureId: null, message: outcome.message };
+    },
+
+    cancelSketchSupport: () => {
+      const session = get().sketchSupport;
+      if (!session) return;
+      // The command never mutated the document, so restoring the prior selection returns
+      // the exact prior state (camera included — it was only dimmed, never moved).
+      set({
+        sketchSupport: null,
+        selectedEntityId: session.prior.selectedEntityId,
+        selectedFeatureId: session.prior.selectedFeatureId,
+        selectedFace: session.prior.selectedFace,
+        selectedPlane: session.prior.selectedPlane,
+        hoveredFace: null,
+      });
+    },
 
     startFaceSketch: () => {
       const state = get();
@@ -1057,6 +1257,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedFace: null,
         faceSketchArmed: false,
         faceSketchError: null,
+        sketchSupport: null,
+        selectedPlane: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: computeSketchSolve(feature),
@@ -1771,6 +1973,8 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedFace: null,
         faceSketchArmed: false,
         faceSketchError: null,
+        sketchSupport: null,
+        selectedPlane: null,
         sketchSelection: [],
         selectedConstraintId: null,
         sketchSolve: null,
@@ -1808,7 +2012,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         selectedEntityId: null,
         selectedFeatureId: null,
         selectedFace: null,
+        selectedPlane: null,
         faceSketchArmed: false,
+        sketchSupport: null,
       });
     },
 

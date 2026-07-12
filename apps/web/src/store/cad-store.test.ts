@@ -1,20 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { createCadStore, selectSelectedEntity } from './cad-store.js';
+import { buildTestDocument } from '../test/fixtures.js';
+
+/** A store seeded with the shared body fixture, for tests that operate on existing entities. */
+const seeded = () => createCadStore(buildTestDocument());
 
 describe('createCadStore', () => {
-  it('starts with a seeded document, no selection, and a perspective camera', () => {
+  it('starts with a demo-free document (no bodies/features), no selection, and a perspective camera', () => {
     const store = createCadStore();
     const state = store.getState();
 
     expect(state.document.schemaVersion).toBe(2);
     expect(state.document.units).toBe('mm');
-    expect(state.document.entities.length).toBeGreaterThan(0);
+    expect(state.document.entities).toEqual([]);
+    expect(state.document.features).toEqual([]);
     expect(state.selectedEntityId).toBeNull();
     expect(state.cameraProjection).toBe('perspective');
   });
 
   it('selects an entity that exists in the document', () => {
-    const store = createCadStore();
+    const store = seeded();
     const firstId = store.getState().document.entities[0]!.id;
 
     store.getState().selectEntity(firstId);
@@ -23,7 +28,7 @@ describe('createCadStore', () => {
   });
 
   it('clears the selection when given null', () => {
-    const store = createCadStore();
+    const store = seeded();
     const firstId = store.getState().document.entities[0]!.id;
     store.getState().selectEntity(firstId);
 
@@ -41,7 +46,7 @@ describe('createCadStore', () => {
   });
 
   it('does not clear an existing selection when a later unknown id is selected', () => {
-    const store = createCadStore();
+    const store = seeded();
     const firstId = store.getState().document.entities[0]!.id;
     store.getState().selectEntity(firstId);
 
@@ -130,7 +135,7 @@ describe('createEntity', () => {
 
 describe('updateEntity', () => {
   it('applies a valid dimension patch', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities[0]!.id;
 
     const ok = store.getState().updateEntity(id, { primitive: { kind: 'box', width: 99, height: 30, depth: 20 } });
@@ -141,7 +146,7 @@ describe('updateEntity', () => {
   });
 
   it('applies a valid transform patch', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities[0]!.id;
 
     const ok = store.getState().updateEntity(id, {
@@ -154,7 +159,7 @@ describe('updateEntity', () => {
   });
 
   it('rejects a non-positive dimension and leaves the document unchanged', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities[0]!.id;
     const before = store.getState().document;
 
@@ -165,7 +170,7 @@ describe('updateEntity', () => {
   });
 
   it('rejects an l-bracket thickness that is not strictly less than width/height', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities.find((entity) => entity.primitive.kind === 'lBracket')!.id;
 
     const ok = store.getState().updateEntity(id, {
@@ -184,7 +189,7 @@ describe('updateEntity', () => {
   });
 
   it('makes a valid update undoable', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities[0]!.id;
 
     store.getState().updateEntity(id, { primitive: { kind: 'box', width: 99, height: 30, depth: 20 } });
@@ -287,7 +292,7 @@ describe('loadDocument', () => {
   });
 
   it('clears the current selection', () => {
-    const store = createCadStore();
+    const store = seeded();
     const id = store.getState().document.entities[0]!.id;
     store.getState().selectEntity(id);
 
@@ -316,7 +321,7 @@ describe('selectSelectedEntity', () => {
   });
 
   it('returns the entity matching the selected id', () => {
-    const store = createCadStore();
+    const store = seeded();
     const target = store.getState().document.entities[1]!;
     store.getState().selectEntity(target.id);
 

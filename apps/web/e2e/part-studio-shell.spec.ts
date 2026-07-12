@@ -54,8 +54,21 @@ test.describe('Part Studio shell at 1440x900', () => {
     expect(statusBarBox!.y + statusBarBox!.height).toBeCloseTo(900, 0);
   });
 
-  test('shows visibly lit, non-black default bodies with no selection', async ({ page }) => {
+  /**
+   * Adds a cylinder at the world origin, then deselects it with an empty
+   * left-center viewport click — away from the centred body and from the
+   * top-right view cube / bottom-left navigation overlays (which would orbit).
+   */
+  async function addCylinderDeselected(page: import('@playwright/test').Page): Promise<void> {
+    await page.getByRole('button', { name: 'Add Cylinder' }).click();
+    const box = (await page.locator('.viewport__canvas').boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.5);
+    await page.waitForTimeout(200);
+  }
+
+  test('shows visibly lit, non-black bodies with no selection', async ({ page }) => {
     await page.goto('/');
+    await addCylinderDeselected(page);
     await page.waitForTimeout(300);
 
     const [r, g, b, a] = await samplePixel('.viewport__canvas', page);
@@ -68,6 +81,7 @@ test.describe('Part Studio shell at 1440x900', () => {
 
   test('highlights a selected body with the SWALHA blue accent', async ({ page }) => {
     await page.goto('/');
+    await addCylinderDeselected(page);
     await page.waitForTimeout(300);
     // Offset below the object's center to avoid the transform gizmo that will overlay it once selected.
     const offset = { dx: 0, dy: 60 };

@@ -1,63 +1,47 @@
-import { Move3d } from 'lucide-react';
-import type { SketchPlane } from '@swalha-cad/document';
+import { Move3d, PencilRuler } from 'lucide-react';
 import { useCadStore } from '../store/cad-store-context.js';
 import { AddPrimitiveMenu } from './AddPrimitiveMenu.js';
-import { DropdownMenu } from './ui/DropdownMenu.js';
+import { Button } from './ui/Button.js';
 import { IconButton } from './ui/IconButton.js';
 import { Separator } from './ui/Separator.js';
 import { Tooltip } from './ui/Tooltip.js';
 
-const SKETCH_PLANES: { plane: SketchPlane; label: string }[] = [
-  { plane: 'XY', label: 'Top Plane (XY)' },
-  { plane: 'XZ', label: 'Front Plane (XZ)' },
-  { plane: 'YZ', label: 'Right Plane (YZ)' },
-];
-
 /**
- * Second, icon-first bar beneath the document bar. The Sketch action opens an
- * origin-plane picker (XY/XZ/YZ) that creates a sketch feature and enters the
- * focused 2D sketch workspace; Extrude remains reserved for a later milestone
- * task. Primitive creation stays available alongside.
+ * Second, icon-first bar beneath the document bar. The single Sketch action is
+ * the unified entry point: with an origin plane or planar face already
+ * preselected it enters the sketch immediately; otherwise it opens the
+ * nonblocking support-selection command (banner + task panel) so the user can
+ * choose a support. Extrude and primitive creation stay available at rest but
+ * are disabled while a support is being chosen or a sketch is active.
  */
 export function FeatureToolbar() {
-  const enterSketch = useCadStore((state) => state.enterSketch);
-  const startFaceSketch = useCadStore((state) => state.startFaceSketch);
-  const hasSelectedFace = useCadStore((state) => state.selectedFace !== null);
+  const startSketch = useCadStore((state) => state.startSketch);
   const inSketch = useCadStore((state) => state.sketch !== null);
+  const inSupport = useCadStore((state) => state.sketchSupport !== null);
   const startExtrude = useCadStore((state) => state.startExtrude);
   const extruding = useCadStore((state) => state.extrude !== null);
   const hasSketch = useCadStore((state) => state.document.features.some((feature) => feature.kind === 'sketch'));
-  // A face is available to sketch on once the document has any solid body (a primitive or a derived solid).
-  const hasSolid = useCadStore(
-    (state) => state.document.entities.length > 0 || state.document.features.some((feature) => feature.kind === 'extrude'),
-  );
 
   // Extrude is a Part Studio operation: available once a sketch exists, never while
-  // sketching, and pressed while its contextual task panel is open.
-  const extrudeDisabled = inSketch || !hasSketch;
-
-  const faceItem = {
-    id: 'face',
-    label: hasSelectedFace ? 'On selected face' : 'On a face…',
-    disabled: inSketch || !hasSolid,
-    onSelect: () => startFaceSketch(),
-  };
+  // sketching or choosing a sketch support, and pressed while its task panel is open.
+  const extrudeDisabled = inSketch || inSupport || !hasSketch;
 
   return (
     <div className="feature-toolbar" role="toolbar" aria-label="Feature toolbar">
-      <DropdownMenu
-        label="Sketch"
-        className="feature-toolbar__sketch"
-        items={[
-          faceItem,
-          ...SKETCH_PLANES.map(({ plane, label }) => ({
-            id: plane,
-            label,
-            disabled: inSketch,
-            onSelect: () => enterSketch(plane),
-          })),
-        ]}
-      />
+      <Tooltip content="Sketch — select a plane or planar face">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="feature-toolbar__sketch"
+          aria-label="Sketch"
+          aria-pressed={inSketch || inSupport}
+          disabled={inSketch || extruding}
+          onClick={() => startSketch()}
+        >
+          <PencilRuler aria-hidden="true" />
+          Sketch
+        </Button>
+      </Tooltip>
       <Tooltip content={extrudeDisabled ? 'Create a sketch profile to extrude' : 'Extrude a sketch profile into a solid'}>
         <IconButton
           aria-label="Extrude"
@@ -70,7 +54,7 @@ export function FeatureToolbar() {
 
       <Separator orientation="vertical" className="feature-toolbar__separator" />
 
-      <AddPrimitiveMenu />
+      <AddPrimitiveMenu disabled={inSupport} />
     </div>
   );
 }

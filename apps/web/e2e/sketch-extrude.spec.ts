@@ -2,6 +2,7 @@ import type { CadDocumentV2, ExtrudeFeature, SketchFeature } from '@swalha-cad/d
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { openSketchOnPlane } from './helpers.js';
 
 // Milestone 2 release-gate proof: the complete human sketch-to-solid workflow driven
 // end-to-end through the real browser UI — XY sketch on arbitrary (off-grid) coordinates,
@@ -62,8 +63,7 @@ async function clickCentre(page: Page, target: Locator): Promise<void> {
 }
 
 async function enterXySketch(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: 'Sketch' }).click();
-  await page.getByRole('menuitem', { name: 'Top Plane (XY)' }).click();
+  await openSketchOnPlane(page, 'Top');
   await expect(page.getByRole('toolbar', { name: 'Sketch tools' })).toBeVisible();
   return page.getByRole('img', { name: 'Sketch canvas' });
 }

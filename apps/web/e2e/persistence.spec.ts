@@ -64,21 +64,20 @@ test('saves a document, reloads it, and exports a parseable STL with expected wo
   const savedJson = JSON.parse(await readFile(savedDocumentPath!, 'utf-8')) as CadDocumentV2;
   expect(savedJson.schemaVersion).toBe(2);
   expect(savedJson.units).toBe('mm');
-  expect(savedJson.entities).toHaveLength(4);
-  const savedBracket = savedJson.entities.find((entity) => entity.name === 'L-Bracket 2');
+  // A fresh Part Studio is demo-free, so the saved document holds exactly the one added body.
+  expect(savedJson.entities).toHaveLength(1);
+  const savedBracket = savedJson.entities.find((entity) => entity.name === 'L-Bracket');
   expect(savedBracket).toBeDefined();
   expect(savedBracket?.primitive).toMatchObject({ kind: 'lBracket', width: 77 });
   expect(savedBracket?.transform.translation).toEqual([120, 0, 0]);
 
-  // A fresh load starts from the seed document again, without the added entity.
+  // A fresh load starts demo-free again, without the added entity.
   await page.reload();
   const sceneTree = page.getByRole('navigation', { name: 'Scene tree' });
-  await expect(sceneTree.getByRole('button')).toHaveCount(3);
-  await expect(sceneTree.getByRole('button', { name: 'L-Bracket 2' })).toHaveCount(0);
+  await expect(sceneTree.getByRole('button', { name: 'L-Bracket' })).toHaveCount(0);
 
   await page.locator('input[type="file"]').setInputFiles(savedDocumentPath!);
-  await expect(sceneTree.getByRole('button')).toHaveCount(4);
-  await sceneTree.getByRole('button', { name: 'L-Bracket 2' }).click();
+  await sceneTree.getByRole('button', { name: 'L-Bracket' }).click();
   await expect(properties.getByLabel('Width')).toHaveValue('77');
   await expect(properties.getByLabel('Translate X')).toHaveValue('120');
 
@@ -94,12 +93,10 @@ test('saves a document, reloads it, and exports a parseable STL with expected wo
     expect(Number.isFinite(coordinate)).toBe(true);
   }
 
-  // Expected combined world bounds across all four entities (seed box/cylinder/bracket plus the
-  // edited L-Bracket 2), computed from each entity's outer half-extents and translation.
-  expect(parsed.bounds.min[0]).toBeCloseTo(-80, 1); // seed box: translate -60, width 40
-  expect(parsed.bounds.max[0]).toBeCloseTo(158.5, 1); // L-Bracket 2: translate 120, width 77
-  expect(parsed.bounds.min[1]).toBeCloseTo(-25, 1); // brackets: height 50
+  // Expected world bounds of the single edited L-Bracket (translate X 120, width 77,
+  // height 50 centred in Y), proving the exported geometry reflects the loaded document.
+  expect(parsed.bounds.max[0]).toBeCloseTo(158.5, 1); // translate 120 + half-width 38.5
+  expect(parsed.bounds.min[0]).toBeCloseTo(81.5, 1); // translate 120 - half-width 38.5
+  expect(parsed.bounds.min[1]).toBeCloseTo(-25, 1); // height 50 centred
   expect(parsed.bounds.max[1]).toBeCloseTo(25, 1);
-  expect(parsed.bounds.min[2]).toBeCloseTo(-15, 1); // seed cylinder: radius 15
-  expect(parsed.bounds.max[2]).toBeCloseTo(15, 1);
 });

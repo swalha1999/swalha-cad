@@ -40,8 +40,19 @@ export function Viewport() {
   const sketchPlane = useCadStore((state) => state.sketch?.plane ?? null);
   const sketchFeatureId = useCadStore((state) => state.sketch?.featureId ?? null);
   const faceSketchArmed = useCadStore((state) => state.faceSketchArmed);
+  const inSupport = useCadStore((state) => state.sketchSupport !== null);
   const selectedFaceBodyId = useCadStore((state) => state.selectedFace?.bodyId ?? null);
   const selectedFaceId = useCadStore((state) => state.selectedFace?.faceId ?? null);
+  const selectedPlane = useCadStore((state) => state.selectedPlane);
+  const supportPlane = useCadStore((state) =>
+    state.sketchSupport?.support?.kind === 'plane' ? state.sketchSupport.support.plane : null,
+  );
+  const supportFaceBodyId = useCadStore((state) =>
+    state.sketchSupport?.support?.kind === 'face' ? state.sketchSupport.support.face.bodyId : null,
+  );
+  const supportFaceId = useCadStore((state) =>
+    state.sketchSupport?.support?.kind === 'face' ? state.sketchSupport.support.face.faceId : null,
+  );
   const sketchFaceBodyId = useCadStore((state) => selectActiveSketch(state)?.face?.bodyId ?? null);
   const sketchFaceId = useCadStore((state) => selectActiveSketch(state)?.face?.faceId ?? null);
   const storeApi = useCadStoreApi();
@@ -49,10 +60,11 @@ export function Viewport() {
   // A single highlighted body: the selected feature's derived solid, or the selected primitive.
   const selectedBodyId = selectedFeatureId ?? selectedEntityId;
 
-  // While sketching the opaque 2D overlay owns interaction; armed picking waits for a
-  // face click; otherwise face hover/select is available for the preselect workflow.
-  const facePickMode: FacePickMode = inSketch ? 'off' : faceSketchArmed ? 'armed' : 'hover';
-  const modelDimmed = inSketch || faceSketchArmed;
+  // While sketching the opaque 2D overlay owns interaction; the support command
+  // enables plane + planar-face picking; armed picking waits for a face click;
+  // otherwise face hover/select is available for the preselect workflow.
+  const facePickMode: FacePickMode = inSketch ? 'off' : inSupport ? 'support' : faceSketchArmed ? 'armed' : 'hover';
+  const modelDimmed = inSketch || faceSketchArmed || inSupport;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -76,6 +88,8 @@ export function Viewport() {
       onFaceHover: (pick) => storeApi.getState().setHoveredFace(pick),
       onFaceSelect: (pick) => storeApi.getState().selectFace(pick),
       onArmedFaceClick: (pick) => storeApi.getState().enterSketchOnFace(pick),
+      onSupportFaceClick: (pick) => storeApi.getState().chooseSketchFace(pick),
+      onSupportPlaneClick: (planeId) => storeApi.getState().chooseSketchPlane(planeId),
     });
     sceneRef.current = scene;
 
@@ -118,10 +132,17 @@ export function Viewport() {
     sceneRef.current?.setModelDimmed(modelDimmed);
   }, [modelDimmed]);
 
+  // The highlighted face is the support command's collected face when active, else the preselected face.
   useEffect(() => {
-    const pick = selectedFaceBodyId && selectedFaceId ? { bodyId: selectedFaceBodyId, faceId: selectedFaceId } : null;
-    sceneRef.current?.setSelectedFace(pick);
-  }, [selectedFaceBodyId, selectedFaceId]);
+    const bodyId = supportFaceBodyId ?? selectedFaceBodyId;
+    const faceId = supportFaceId ?? selectedFaceId;
+    sceneRef.current?.setSelectedFace(bodyId && faceId ? { bodyId, faceId } : null);
+  }, [selectedFaceBodyId, selectedFaceId, supportFaceBodyId, supportFaceId]);
+
+  // Highlight the chosen/preselected origin plane so a picked plane support reads distinctly.
+  useEffect(() => {
+    sceneRef.current?.setSelectedPlane(supportPlane ?? selectedPlane);
+  }, [supportPlane, selectedPlane]);
 
   useEffect(() => {
     sceneRef.current?.setProjection(projection);

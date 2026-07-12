@@ -17,6 +17,8 @@ import {
   GridHelper,
   Mesh,
   MeshBasicMaterial,
+  Raycaster,
+  Vector2,
   Vector3,
 } from 'three';
 import type { CameraProjection } from '../store/cad-store.js';
@@ -25,6 +27,8 @@ import { createRenderer } from './create-renderer.js';
 import { createTransformControls } from './create-transform-controls.js';
 import { faceOverlayPositions } from './face-overlay.js';
 import { isClick } from './is-click.js';
+import type { OriginPlaneId } from './origin-planes.js';
+import { createOriginPlanes } from './origin-planes.js';
 import { pickEntityId } from './pick-entity.js';
 import type { FacePick } from './pick-face.js';
 import { pickFace } from './pick-face.js';
@@ -37,9 +41,12 @@ export type StandardView = 'front' | 'top' | 'right' | 'home';
  * `off` — whole-body selection only (default Part Studio picking is `hover`);
  * `hover` — prehighlight the face under the pointer and select body + face on
  * click (the preselect-then-Sketch workflow); `armed` — dim the model and the
- * next face click enters a sketch on it (the Sketch-then-face workflow).
+ * next face click enters a sketch on it (the Sketch-then-face workflow);
+ * `support` — the sketch support-selection command: origin planes and planar
+ * faces both prehighlight on hover and, on click, populate the support collector
+ * (never entering directly), with an empty click clearing hover only.
  */
-export type FacePickMode = 'off' | 'hover' | 'armed';
+export type FacePickMode = 'off' | 'hover' | 'armed' | 'support';
 
 /** A support frame for aligning the camera normal-to-face when a face sketch begins. */
 export interface FaceAlignFrame {
@@ -66,6 +73,12 @@ export interface ViewportSceneOptions {
   onFaceSelect?: (pick: FacePick) => void;
   /** Optional: called when a face is clicked in `armed` mode (Sketch-then-face), to enter a sketch on it. */
   onArmedFaceClick?: (pick: FacePick) => void;
+  /** Optional: called when a planar face is clicked in `support` mode, to populate the sketch support collector. */
+  onSupportFaceClick?: (pick: FacePick) => void;
+  /** Optional: called when an origin plane is clicked in `support` mode, to populate the sketch support collector. */
+  onSupportPlaneClick?: (planeId: OriginPlaneId) => void;
+  /** Optional: called with the origin plane under the pointer in `support` mode (or `null`), for plane prehighlight. */
+  onSupportPlaneHover?: (planeId: OriginPlaneId | null) => void;
 }
 
 export interface ViewportScene {
@@ -79,6 +92,8 @@ export interface ViewportScene {
   setFacePickMode(mode: FacePickMode): void;
   /** Highlights the given selected face distinctly from whole-body selection (or clears it with `null`). */
   setSelectedFace(pick: FacePick | null): void;
+  /** Highlights the given origin plane as the chosen sketch support (or clears it with `null`). */
+  setSelectedPlane(planeId: OriginPlaneId | null): void;
   /** Dims every body's material (or restores full opacity) so a sketch/face-pick context reads as focused. */
   setModelDimmed(dimmed: boolean): void;
   /** Orients the camera to look straight down a face's normal at its origin (used when a face sketch begins). */
@@ -152,6 +167,12 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
   const groundGrid = new GridHelper(400, 40, 0xc3cad4, 0xe1e5eb);
   groundGrid.position.y = -40;
   sceneSync.scene.add(ambientLight, keyLight, fillLight, groundGrid);
+
+  // The three translucent, blue-outlined origin planes (Top/Front/Right) framing
+  // the empty startup origin and acting as sketch supports during the command.
+  const originPlanes = createOriginPlanes();
+  for (const object of originPlanes.objects) sceneSync.scene.add(object);
+  let currentHoveredPlane: OriginPlaneId | null = null;
 
   const controls = createOrbitControls(activeCamera, options.canvas);
 
@@ -339,6 +360,24 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     return pickFace({ camera: activeCamera, scene: sceneSync.scene, ...ndc });
   }
 
+  /** Raycasts the pointer position against the origin planes and returns the closest plane's id, or `null`. */
+  function pickPlaneAt(clientX: number, clientY: number): OriginPlaneId | null {
+    const ndc = ndcAt(clientX, clientY);
+    if (!ndc) return null;
+    const raycaster = new Raycaster();
+    raycaster.setFromCamera(new Vector2(ndc.ndcX, ndc.ndcY), activeCamera);
+    const [hit] = raycaster.intersectObjects(originPlanes.pickTargets as Mesh[], false);
+    const planeId = hit?.object.userData['planeId'];
+    return typeof planeId === 'string' ? (planeId as OriginPlaneId) : null;
+  }
+
+  function setHoveredPlane(planeId: OriginPlaneId | null): void {
+    if (planeId === currentHoveredPlane) return;
+    currentHoveredPlane = planeId;
+    originPlanes.setHovered(planeId);
+    options.onSupportPlaneHover?.(planeId);
+  }
+
   function sameFace(a: FacePick | null, b: FacePick | null): boolean {
     return a === b || (a != null && b != null && a.bodyId === b.bodyId && a.faceId === b.faceId);
   }
@@ -361,6 +400,10 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
         refreshFaceOverlays();
         options.onFaceHover?.(pick);
       }
+      // In support mode a body face takes precedence; only prehighlight a plane when no face is under the pointer.
+      if (facePickMode === 'support') {
+        setHoveredPlane(pick ? null : pickPlaneAt(event.clientX, event.clientY));
+      }
     }
   }
 
@@ -376,6 +419,24 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
     if (facePickMode === 'armed') {
       const pick = pickFaceAt(event.clientX, event.clientY);
       if (pick) options.onArmedFaceClick?.(pick);
+      return;
+    }
+    if (facePickMode === 'support') {
+      // A body face wins over a plane behind it; a plane populates the collector;
+      // an empty click clears hover only and never silently chooses a plane.
+      const facePick = pickFaceAt(event.clientX, event.clientY);
+      if (facePick) {
+        options.onSupportFaceClick?.(facePick);
+        return;
+      }
+      const planeId = pickPlaneAt(event.clientX, event.clientY);
+      if (planeId) options.onSupportPlaneClick?.(planeId);
+      else {
+        currentHoveredFace = null;
+        refreshFaceOverlays();
+        options.onFaceHover?.(null);
+        setHoveredPlane(null);
+      }
       return;
     }
     if (facePickMode === 'hover') {
@@ -428,12 +489,18 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
         currentHoveredFace = null;
         options.onFaceHover?.(null);
       }
+      // Plane prehighlight only lives inside the support command; drop it on any other mode.
+      if (mode !== 'support') setHoveredPlane(null);
       refreshFaceOverlays();
     },
 
     setSelectedFace(pick) {
       currentSelectedFace = pick;
       refreshFaceOverlays();
+    },
+
+    setSelectedPlane(planeId) {
+      originPlanes.setSelected(planeId);
     },
 
     setModelDimmed(dimmed) {
@@ -517,6 +584,8 @@ export function createViewportScene(options: ViewportSceneOptions): ViewportScen
       faceOverlays.clear();
       sceneSync.scene.remove(transformControls.getHelper());
       transformControls.dispose();
+      for (const object of originPlanes.objects) sceneSync.scene.remove(object);
+      originPlanes.dispose();
       sceneSync.scene.remove(groundGrid, ambientLight, keyLight, fillLight);
       groundGrid.geometry.dispose();
       (groundGrid.material as Material).dispose();

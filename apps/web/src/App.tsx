@@ -8,7 +8,9 @@ import { ResizablePanel } from './components/ResizablePanel.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Viewport } from './components/Viewport.js';
 import { ExtrudePreview } from './features/ExtrudePreview.js';
+import { SketchSupportBanner } from './features/SketchSupportBanner.js';
 import { handleGlobalDelete } from './interactions/delete-keys.js';
+import { handleSketchSupportKey } from './interactions/sketch-support-keys.js';
 import { SketchWorkspace } from './sketch/SketchWorkspace.js';
 import { CadStoreProvider } from './store/cad-store-context.js';
 import { createCadStore } from './store/cad-store.js';
@@ -31,6 +33,7 @@ function WorkspaceCenter() {
     <div className="part-studio__center">
       <Viewport />
       {inSketch ? <SketchWorkspace /> : null}
+      <SketchSupportBanner />
       <ExtrudePreview />
     </div>
   );
@@ -50,6 +53,12 @@ function useGlobalKeyboard(): void {
   const storeApi = useCadStoreApi();
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
+      // The sketch support-selection command claims Enter (confirm) / Escape (cancel)
+      // first, but only when text editing does not own focus (its own guard).
+      if (handleSketchSupportKey(storeApi, event)) {
+        event.preventDefault();
+        return;
+      }
       // Deletion first: preventDefault only when a CAD deletion is actually handled,
       // so typing Backspace in a field never both deletes geometry and navigates back.
       if (handleGlobalDelete(storeApi, event)) {

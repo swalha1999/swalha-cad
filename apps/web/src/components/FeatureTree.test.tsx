@@ -34,21 +34,59 @@ describe('FeatureTree', () => {
     expect(screen.getByRole('navigation', { name: 'Scene tree' })).toBeInTheDocument();
   });
 
-  it('lists the origin and the three standard planes above the bodies', () => {
+  it('lists the Default geometry group: Origin and the Top/Front/Right planes', () => {
     renderFeatureTree();
 
+    expect(screen.getByText('Default geometry')).toBeInTheDocument();
     expect(screen.getByText('Origin')).toBeInTheDocument();
-    expect(screen.getByText('Front Plane (XZ)')).toBeInTheDocument();
-    expect(screen.getByText('Top Plane (XY)')).toBeInTheDocument();
-    expect(screen.getByText('Right Plane (YZ)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Top' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Front' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Right' })).toBeInTheDocument();
   });
 
-  it('lists every entity in the document by name', () => {
+  it('lists a Parts section with the body count and every entity by name', () => {
     renderFeatureTree();
 
+    expect(screen.getByText('Parts (3)')).toBeInTheDocument();
     expect(screen.getByText('Box')).toBeInTheDocument();
     expect(screen.getByText('Cylinder')).toBeInTheDocument();
     expect(screen.getByText('L-Bracket')).toBeInTheDocument();
+  });
+
+  it('shows Parts (0) for a demo-free document', () => {
+    renderFeatureTree(createCadStore());
+    expect(screen.getByText('Parts (0)')).toBeInTheDocument();
+  });
+
+  it('preselects an origin plane when its row is clicked, mutually exclusive with body selection', () => {
+    const store = renderFeatureTree();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Front' }));
+
+    expect(store.getState().selectedPlane).toBe('XZ');
+    expect(screen.getByRole('button', { name: 'Front' })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('shows an active draft Sketch row while the support command is open', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().startSketch();
+    renderFeatureTree(store);
+
+    expect(screen.getByText('Sketch 1')).toBeInTheDocument();
+    // Clicking a plane row during the command populates the collector rather than preselecting.
+    fireEvent.click(screen.getByRole('button', { name: 'Top' }));
+    expect(store.getState().sketchSupport?.support).toEqual({ kind: 'plane', plane: 'XY' });
+  });
+
+  it('double-clicking a plane during the command selects and confirms it', () => {
+    const store = createCadStore(buildTestDocument());
+    store.getState().startSketch();
+    renderFeatureTree(store);
+
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Right' }));
+
+    expect(store.getState().sketch?.plane).toBe('YZ');
+    expect(store.getState().sketchSupport).toBeNull();
   });
 
   it('marks no entity as selected initially', () => {
@@ -74,11 +112,11 @@ describe('FeatureTree', () => {
     expect(screen.getByRole('button', { name: 'Box' })).toHaveAttribute('aria-current', 'false');
   });
 
-  it('does not render the origin/plane rows as interactive buttons', () => {
+  it('renders Origin as a static row (not an interactive button)', () => {
     renderFeatureTree();
 
     expect(screen.queryByRole('button', { name: 'Origin' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Front Plane (XZ)' })).not.toBeInTheDocument();
+    expect(screen.getByText('Origin')).toBeInTheDocument();
   });
 
   it('selects a feature in the store when its row is clicked', () => {

@@ -11,14 +11,14 @@ const PRIMITIVE_KINDS: { kind: Primitive['kind']; label: string; icon: Component
   { kind: 'lBracket', label: 'Add L-Bracket', icon: Shapes },
 ];
 
-export function AddPrimitiveMenu() {
+export function AddPrimitiveMenu({ disabled = false }: { disabled?: boolean }) {
   const createEntity = useCadStore((state) => state.createEntity);
 
   return (
     <div className="feature-toolbar__group" role="group" aria-label="Add primitive">
       {PRIMITIVE_KINDS.map(({ kind, label, icon: Icon }) => (
         <Tooltip key={kind} content={label}>
-          <IconButton aria-label={label} icon={<Icon />} onClick={() => createEntity(kind)} />
+          <IconButton aria-label={label} icon={<Icon />} disabled={disabled} onClick={() => createEntity(kind)} />
         </Tooltip>
       ))}
     </div>

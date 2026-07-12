@@ -20,7 +20,7 @@ test('creates an L-bracket, edits its dimensions and transform, and undo/redo re
   await page.getByRole('group', { name: 'Add primitive' }).getByRole('button', { name: 'Add L-Bracket' }).click();
 
   const sceneTree = page.getByRole('navigation', { name: 'Scene tree' });
-  const sceneRow = sceneTree.getByRole('button', { name: 'L-Bracket 2' });
+  const sceneRow = sceneTree.getByRole('button', { name: 'L-Bracket' });
   await expect(sceneRow).toHaveAttribute('aria-current', 'true');
 
   const properties = page.getByRole('complementary', { name: 'Properties' });
@@ -51,7 +51,7 @@ test('creates an L-bracket, edits its dimensions and transform, and undo/redo re
   );
   await clickUntil(
     () => undoButton.click(),
-    async () => (await sceneTree.getByRole('button', { name: 'L-Bracket 2' }).count()) === 0,
+    async () => (await sceneTree.getByRole('button', { name: 'L-Bracket' }).count()) === 0,
   );
   await expect(properties.getByText('No selection')).toBeVisible();
   await expect(undoButton).toBeDisabled();
@@ -59,12 +59,12 @@ test('creates an L-bracket, edits its dimensions and transform, and undo/redo re
   // Redo replays every command and reconstructs the fully edited entity.
   await clickUntil(
     () => redoButton.click(),
-    async () => (await sceneTree.getByRole('button', { name: 'L-Bracket 2' }).count()) === 1,
+    async () => (await sceneTree.getByRole('button', { name: 'L-Bracket' }).count()) === 1,
   );
   await expect(redoButton).toBeEnabled();
   await clickUntil(() => redoButton.click(), async () => !(await redoButton.isEnabled()));
 
-  await sceneTree.getByRole('button', { name: 'L-Bracket 2' }).click();
+  await sceneTree.getByRole('button', { name: 'L-Bracket' }).click();
   await expect(properties.getByLabel('Width')).toHaveValue('80');
   await expect(properties.getByLabel('Translate X')).toHaveValue('15');
 });
