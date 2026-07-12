@@ -11,6 +11,8 @@ import type { DimensionAnnotation } from './dimension.js';
 import { DimensionPrompt } from './DimensionPrompt.js';
 import { toolPreview } from './preview.js';
 import type { PreviewGeometry } from './preview.js';
+import { modifyPreview } from './modify/index.js';
+import type { ModifyPreview } from './modify/index.js';
 import type { SnapKind, Vec2 } from './tools/types.js';
 import { useSketchInteraction } from './useSketchInteraction.js';
 import {
@@ -238,6 +240,60 @@ function DimensionOverlay({ annotation, measured }: { annotation: DimensionAnnot
 /** Strong object snaps get a larger ring; grid/free/inference a smaller one. */
 const STRONG_SNAP_KINDS = new Set<SnapKind>(['endpoint', 'center', 'intersection', 'midpoint', 'origin']);
 
+/** A highlighted outline of the modify tool's target curve, so the hovered curve is obvious. */
+function ModifyTargetHighlight({ entities, targetId }: { entities: readonly SketchEntity[]; targetId: string }) {
+  const points = pointMap(entities);
+  const target = entities.find((entity) => entity.id === targetId);
+  if (!target) return null;
+  if (target.kind === 'line') {
+    const a = points.get(target.startId);
+    const b = points.get(target.endId);
+    if (!a || !b) return null;
+    const pa = planeToSvg(a.x, a.y);
+    const pb = planeToSvg(b.x, b.y);
+    return <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} className="sketch-overlay__modify-target" />;
+  }
+  if (target.kind === 'arc') {
+    const c = points.get(target.centerId);
+    if (!c) return null;
+    const d = arcPathD({
+      center: [c.x, c.y],
+      radius: target.radius,
+      startAngle: target.startAngle,
+      endAngle: target.endAngle,
+      direction: target.direction,
+    });
+    return <path d={d} fill="none" className="sketch-overlay__modify-target" />;
+  }
+  return null;
+}
+
+/**
+ * Strong hover/preview feedback for the active Trim/Split tool: the curve under the
+ * cursor is outlined, the exact affected portion is shown (the piece Trim would
+ * remove, or the point Split would create), and an invalid hover shows a
+ * cursor-local diagnostic. Purely a preview — nothing is committed until a click.
+ */
+function ModifyOverlay({ preview, entities, cursor }: { preview: ModifyPreview; entities: readonly SketchEntity[]; cursor: Vec2 }) {
+  const removed = preview.removedPolyline
+    ? preview.removedPolyline.map(([x, y]) => planeToSvg(x, y)).map((p) => `${p.x},${p.y}`).join(' ')
+    : null;
+  const split = preview.splitPoint ? planeToSvg(preview.splitPoint[0], preview.splitPoint[1]) : null;
+  const cursorSvg = planeToSvg(cursor.x, cursor.y);
+  return (
+    <g className={`sketch-overlay__modify sketch-overlay__modify--${preview.valid ? 'valid' : 'invalid'}`} aria-hidden="true">
+      <ModifyTargetHighlight entities={entities} targetId={preview.targetId} />
+      {removed ? <polyline points={removed} fill="none" className="sketch-overlay__modify-remove" /> : null}
+      {split ? <circle cx={split.x} cy={split.y} r={4} className="sketch-overlay__modify-split" /> : null}
+      {!preview.valid && preview.message ? (
+        <text x={cursorSvg.x + 10} y={cursorSvg.y - 10} className="sketch-overlay__modify-error">
+          {preview.message}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
 function SnapIndicator({ cursor, kind }: { cursor: Vec2; kind: SnapKind }) {
   const p = planeToSvg(cursor.x, cursor.y);
   return (
@@ -271,7 +327,12 @@ export function SketchOverlay() {
 
   const entities = sketch?.entities ?? [];
   const preview = toolPreview(session?.toolState ?? null, session?.cursor ?? null);
-  const selectable = !session?.tool;
+  const modify = session?.modify ?? null;
+  // Modify tools own clicks, so the per-entity selection hit targets must not intercept them.
+  const selectable = !session?.tool && !modify;
+  const modifyPoint = modify?.point ?? null;
+  const modifyView: ModifyPreview | null =
+    sketch && modify && modifyPoint ? modifyPreview(sketch, modify.tool, [modifyPoint.x, modifyPoint.y]) : null;
   const status = solve?.status ?? 'under-constrained';
   const selectionSet = new Set(selection);
   const dimension = session?.dimension ?? null;
@@ -297,6 +358,7 @@ export function SketchOverlay() {
       <Geometry entities={entities} selection={selectionSet} status={status} selectable={selectable} onSelect={onEntityClick} />
       {sketch ? <ConstraintGlyphs sketch={sketch} /> : null}
       <Preview preview={preview} />
+      {modifyView && modifyPoint ? <ModifyOverlay preview={modifyView} entities={entities} cursor={modifyPoint} /> : null}
       {annotation && dimension?.phase === 'awaiting' ? <DimensionOverlay annotation={annotation} measured={dimension.measured} /> : null}
       {session?.cursor && session.cursorSnap ? <SnapIndicator cursor={session.cursor} kind={session.cursorSnap} /> : null}
     </svg>

@@ -8,6 +8,7 @@ import {
   findCurveLoopIntersections,
   findLoopSelfIntersections,
   lineArcIntersections,
+  lineLineIntersection,
   segmentsIntersect,
   type CurveLoopSegment,
   type LoopSegment,
@@ -47,6 +48,36 @@ describe('segmentsIntersect: endpoint and touching cases', () => {
 
   it('reports no intersection for collinear segments that do not overlap', () => {
     expect(segmentsIntersect([0, 0], [2, 0], [3, 0], [5, 0])).toBe(false);
+  });
+});
+
+describe('lineLineIntersection', () => {
+  it('returns the crossing point of two segments in an X', () => {
+    const hit = lineLineIntersection([0, 0], [4, 4], [0, 4], [4, 0]);
+    expect(hit).not.toBeNull();
+    expect(hit![0]).toBeCloseTo(2, 9);
+    expect(hit![1]).toBeCloseTo(2, 9);
+  });
+
+  it('returns the touch point where one segment ends on the interior of another (T-junction)', () => {
+    // Vertical segment through the origin meets a horizontal segment at its endpoint (0,0).
+    const hit = lineLineIntersection([0, 5], [0, -3], [0, 0], [10, 0]);
+    expect(hit).not.toBeNull();
+    expect(hit![0]).toBeCloseTo(0, 9);
+    expect(hit![1]).toBeCloseTo(0, 9);
+  });
+
+  it('returns null for parallel segments', () => {
+    expect(lineLineIntersection([0, 0], [4, 0], [0, 1], [4, 1])).toBeNull();
+  });
+
+  it('returns null for collinear segments (no single crossing point)', () => {
+    expect(lineLineIntersection([0, 0], [4, 0], [2, 0], [6, 0])).toBeNull();
+  });
+
+  it('returns null when the crossing of the infinite lines falls outside a segment', () => {
+    // Lines cross at (2,0) but the second segment only spans y in [1,3].
+    expect(lineLineIntersection([0, 0], [4, 0], [2, 1], [2, 3])).toBeNull();
   });
 });
 

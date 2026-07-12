@@ -58,7 +58,8 @@ export type {
 } from './sketch/topology.js';
 export { indexSketchEntities, analyzeLineLoopTopology } from './sketch/topology.js';
 export type { LoopSegment, SelfIntersection } from './sketch/intersections.js';
-export { segmentsIntersect, findLoopSelfIntersections } from './sketch/intersections.js';
+export { segmentsIntersect, findLoopSelfIntersections, lineLineIntersection, lineArcIntersections, arcArcIntersections } from './sketch/intersections.js';
+export type { CurveLoopSegment } from './sketch/intersections.js';
 export type { LineLoopProfile, CircleProfile, SketchProfile, ProfileResult } from './sketch/profile.js';
 export { detectSketchProfile } from './sketch/profile.js';
 // Pure plane-local construction geometry for the Onshape-style creation tools:
@@ -72,7 +73,7 @@ export { centerRectangleCorners, circumcircle, regularPolygonVertices, threePoin
 // Arcs are described exactly as the document stores them (center/radius/angles/
 // direction); each function returns null for degenerate input.
 export type { ArcDirection, ArcGeometry, SlotTangentPoints, StraightSlot } from './sketch/arc.js';
-export { arcEndpoints, centerPointArc, sampleArc, straightSlot, tangentArc, threePointArc } from './sketch/arc.js';
+export { arcEndpoints, centerPointArc, sampleArc, signedArcSweep, straightSlot, tangentArc, threePointArc } from './sketch/arc.js';
 // Watertight profile extrusion: sweep a sketch's single detected closed
 // profile (one line loop or one circle) along its plane normal into an indexed
 // hard-shaded solid, triangulating caps deterministically and generating side

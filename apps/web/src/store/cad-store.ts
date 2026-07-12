@@ -46,6 +46,8 @@ import type { ExtrudeSession, ExtrudeValidation } from '../features/extrude-sess
 import { advanceTool, initialToolState } from '../sketch/tools/index.js';
 import { DEFAULT_POLYGON_SIDES } from '../sketch/tools/types.js';
 import type { SketchToolKind, SnapKind, ToolEvent, ToolState, Vec2 } from '../sketch/tools/types.js';
+import { applyModify } from '../sketch/modify/index.js';
+import type { ModifyTool } from '../sketch/modify/index.js';
 
 export type CameraProjection = 'perspective' | 'orthographic';
 
@@ -88,6 +90,20 @@ export interface SketchSession {
   cursorSnap: SnapKind | null;
   /** Non-null while the Distance/Dimension tool owns the sketch (see {@link DimensionState}). */
   dimension: DimensionState | null;
+  /**
+   * Non-null while a Modify tool (Trim/Split) owns the sketch. `point` is the
+   * latest plane-local cursor position that drives the hover/preview and, on
+   * click, the edit; it is transient interaction state only — every committed
+   * edit still flows through the feature-command history. See {@link ModifyState}.
+   */
+  modify: ModifyState | null;
+}
+
+/** The live state of an active Trim/Split modify tool: which tool, and the cursor point driving its preview. */
+export interface ModifyState {
+  tool: ModifyTool;
+  /** Latest plane-local cursor position, or `null` when the cursor has left the canvas / the preview was cancelled. */
+  point: Vec2 | null;
 }
 
 /**
@@ -246,6 +262,22 @@ export interface CadStoreState {
    * otherwise the selected constraint. No-op when nothing is selected.
    */
   deleteSketchSelection: () => void;
+  /**
+   * Activates (or, with `null`/the same tool, deactivates) a Trim/Split modify
+   * tool. Activating a modify tool leaves any drawing tool, the Distance tool, and
+   * constraint selection so the sketch is in pure modify mode. No-op outside sketch mode.
+   */
+  setSketchModifyTool: (tool: ModifyTool | null) => void;
+  /** Updates the modify tool's cursor point that drives its hover/preview; `null` clears the current preview. No-op unless a modify tool is active. */
+  setModifyPoint: (point: Vec2 | null) => void;
+  /**
+   * Applies the active modify tool at a plane-local click point as exactly one
+   * `feature.update` command through history (deleting the trimmed piece / splitting
+   * the curve, remapping constraints, and preserving unaffected geometry). The tool
+   * stays active for repeated edits. No-op (no mutation) when the click resolves to
+   * no valid edit. No-op unless a modify tool is active.
+   */
+  applySketchModify: (point: Vec2) => void;
   /** Leaves the sketch workspace back to the Part Studio, preserving the feature. */
   finishSketch: () => void;
   /** Sets one snap toggle to a specific value. */
@@ -691,6 +723,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
           cursor: null,
           cursorSnap: null,
           dimension: null,
+          modify: null,
         },
         extrude: null,
         sketchSelection: [],
@@ -709,9 +742,9 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         toolState = { ...toolState, sides: session.polygonSides };
       }
       // Activating a drawing tool leaves constraint-selection mode, so clear the selection.
-      // Either way the Distance/Dimension tool no longer owns the sketch.
+      // Either way the Distance/Dimension and Modify tools no longer own the sketch.
       set({
-        sketch: { ...session, tool, toolState, dimension: null },
+        sketch: { ...session, tool, toolState, dimension: null, modify: null },
         ...(tool ? { sketchSelection: [], selectedConstraintId: null } : {}),
       });
     },
@@ -863,7 +896,7 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         ? { phase: 'awaiting', pointA: resolved.pointA, pointB: resolved.pointB, measured: resolved.measured }
         : { phase: 'picking', points: [] };
       set({
-        sketch: { ...session, tool: null, toolState: null, dimension },
+        sketch: { ...session, tool: null, toolState: null, dimension, modify: null },
         sketchSelection: [],
         selectedConstraintId: null,
       });
@@ -1081,6 +1114,64 @@ export function createCadStore(document: CadDocumentV2 = createSeedDocument(), o
         canUndo: computeCanUndo(nextHistory),
         canRedo: computeCanRedo(nextHistory),
         sketchSelection: [],
+        selectedConstraintId:
+          state.selectedConstraintId && remainingConstraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,
+        sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),
+      });
+    },
+
+    setSketchModifyTool: (tool) => {
+      const session = get().sketch;
+      if (!session) return;
+      const current = session.modify?.tool ?? null;
+      const next = tool !== null && tool === current ? null : tool; // toggle off if re-selecting the active tool
+      set({
+        sketch: {
+          ...session,
+          tool: null,
+          toolState: null,
+          dimension: null,
+          modify: next ? { tool: next, point: session.modify?.point ?? null } : null,
+        },
+        ...(next ? { sketchSelection: [], selectedConstraintId: null } : {}),
+      });
+    },
+
+    setModifyPoint: (point) => {
+      const session = get().sketch;
+      if (!session || !session.modify) return;
+      set({ sketch: { ...session, modify: { ...session.modify, point } } });
+    },
+
+    applySketchModify: (point) => {
+      const state = get();
+      const session = state.sketch;
+      const sketch = selectActiveSketch(state);
+      if (!session || !session.modify || !sketch) return;
+
+      const outcome = applyModify(sketch, session.modify.tool, [point.x, point.y], createId);
+      if (!outcome.ok) {
+        // Invalid click (empty space or a no-op trim): keep the cursor for the diagnostic, mutate nothing.
+        set({ sketch: { ...session, modify: { ...session.modify, point } } });
+        return;
+      }
+
+      const candidate: SketchFeature = { ...sketch, entities: outcome.edit.entities, constraints: outcome.edit.constraints };
+      const nextHistory = applyCommandToHistory(state.history, {
+        type: 'feature.update',
+        id: sketch.id,
+        patch: { entities: outcome.edit.entities, constraints: outcome.edit.constraints },
+      });
+      const remainingEntityIds = new Set(outcome.edit.entities.map((entity) => entity.id));
+      const remainingConstraintIds = new Set(outcome.edit.constraints.map((constraint) => constraint.id));
+      set({
+        history: nextHistory,
+        document: nextHistory.present,
+        canUndo: computeCanUndo(nextHistory),
+        canRedo: computeCanRedo(nextHistory),
+        // The tool stays active (point retained) so repeated edits need no re-selection.
+        sketch: { ...session, modify: { ...session.modify, point } },
+        sketchSelection: state.sketchSelection.filter((id) => remainingEntityIds.has(id)),
         selectedConstraintId:
           state.selectedConstraintId && remainingConstraintIds.has(state.selectedConstraintId) ? state.selectedConstraintId : null,
         sketchSolve: computeSketchSolve(findSketch(nextHistory.present, sketch.id) ?? candidate),

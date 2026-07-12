@@ -67,6 +67,64 @@ describe('SketchOverlay', () => {
     expect(container.querySelectorAll('.sketch-overlay__circle')).toHaveLength(1);
   });
 
+  it('previews the Trim removal piece and highlights the target when a modify tool is active', () => {
+    let n = 0;
+    const store = createCadStore(undefined, { createId: () => `id-${++n}` });
+    store.getState().enterSketch('XY');
+    // A target line crossed by a vertical boundary line.
+    store.getState().setSketchTool('line');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(0, 0) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(120, 0) });
+    store.getState().dispatchSketchEvent({ type: 'finish' });
+    store.getState().setSketchTool('line');
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(100, -10) });
+    store.getState().dispatchSketchEvent({ type: 'click', snap: freeSnap(100, 10) });
+    store.getState().dispatchSketchEvent({ type: 'finish' });
+    store.getState().setSketchModifyTool('trim');
+    store.getState().setModifyPoint({ x: 110, y: 0 });
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    expect(container.querySelector('.sketch-overlay__modify-target')).not.toBeNull();
+    expect(container.querySelector('.sketch-overlay__modify-remove')).not.toBeNull();
+    // No per-entity hit targets while a modify tool owns clicks.
+    expect(container.querySelector('.sketch-overlay__hit')).toBeNull();
+  });
+
+  it('shows a cursor-local diagnostic when a Trim hover has no valid intersection', () => {
+    const store = lineStore();
+    store.getState().setSketchModifyTool('trim');
+    store.getState().setModifyPoint({ x: 18, y: 27 }); // on the lone line, but nothing to trim against
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    const error = container.querySelector('.sketch-overlay__modify-error');
+    expect(error).not.toBeNull();
+    expect(error?.textContent).toMatch(/no intersections/i);
+  });
+
+  it('marks the Split point under the cursor', () => {
+    const store = lineStore();
+    store.getState().setSketchModifyTool('split');
+    store.getState().setModifyPoint({ x: 18, y: 27 });
+
+    const { container } = render(
+      <CadStoreProvider store={store}>
+        <SketchOverlay />
+      </CadStoreProvider>,
+    );
+
+    expect(container.querySelector('.sketch-overlay__modify-split')).not.toBeNull();
+  });
+
   it('draws a committed arc and exposes it as a selectable hit target', () => {
     const store = createCadStore();
     store.getState().enterSketch('XY');

@@ -4,6 +4,7 @@ import { IconButton } from '../components/ui/IconButton.js';
 import { Separator } from '../components/ui/Separator.js';
 import { Tooltip } from '../components/ui/Tooltip.js';
 import { ConstraintToolbar } from './ConstraintToolbar.js';
+import { SketchModifyGroups } from './SketchModifyGroups.js';
 import { SketchOverlay } from './SketchOverlay.js';
 import { SketchToolGroups } from './SketchToolGroups.js';
 import { SnapSettings } from './SnapSettings.js';
@@ -32,6 +33,8 @@ export function SketchWorkspace() {
         <span className="sketch-workspace__plane">{PLANE_LABEL[session.plane]}</span>
         <Separator orientation="vertical" className="sketch-workspace__separator" />
         <SketchToolGroups />
+        <Separator orientation="vertical" className="sketch-workspace__separator" />
+        <SketchModifyGroups />
         <Separator orientation="vertical" className="sketch-workspace__separator" />
         <ConstraintToolbar />
         <Separator orientation="vertical" className="sketch-workspace__separator" />

@@ -831,6 +831,40 @@ body {
   stroke-opacity: 0.6;
 }
 
+/* Modify (Trim/Split) hover + preview feedback. */
+.sketch-overlay__modify-target {
+  stroke: var(--shell-accent);
+  stroke-width: 3;
+  stroke-opacity: 0.45;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* The piece Trim would remove: a bold red overlay tracing the doomed segment. */
+.sketch-overlay__modify-remove {
+  stroke: #e5484d;
+  stroke-width: 3;
+  stroke-linecap: round;
+  fill: none;
+}
+
+/* The point Split would create. */
+.sketch-overlay__modify-split {
+  fill: var(--shell-accent);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+/* Cursor-local diagnostic for an invalid modify hover. */
+.sketch-overlay__modify-error {
+  fill: #e5484d;
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
 /* Only the invisible hit targets catch pointer events; the painted geometry and
    glyph badges stay click-through so selection is unambiguous. */
 .sketch-overlay__line,

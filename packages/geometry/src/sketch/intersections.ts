@@ -121,6 +121,32 @@ function dedupePoints(points: readonly Vec2[], tolerance: number): Vec2[] {
 }
 
 /**
+ * The single point where two closed segments `p1`-`p2` and `p3`-`p4` cross,
+ * including a touch at a shared endpoint or a T-junction, or `null` when they do
+ * not meet at exactly one point. Parallel and collinear pairs (zero cross
+ * product) return `null` — a collinear overlap has no single crossing point and
+ * is handled as a degenerate case by callers. The `tolerance` slackens the
+ * within-segment test at each end so an endpoint that lands exactly on the other
+ * segment still counts. This is the point-valued companion to
+ * {@link segmentsIntersect}, used by sketch Trim/Split to locate the boundaries
+ * that divide a target line.
+ */
+export function lineLineIntersection(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2, tolerance = EPSILON): Vec2 | null {
+  const rx = p2[0] - p1[0];
+  const ry = p2[1] - p1[1];
+  const sx = p4[0] - p3[0];
+  const sy = p4[1] - p3[1];
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) <= EPSILON) return null; // parallel or collinear: no single crossing
+  const qpx = p3[0] - p1[0];
+  const qpy = p3[1] - p1[1];
+  const t = (qpx * sy - qpy * sx) / denom;
+  const u = (qpx * ry - qpy * rx) / denom;
+  if (t < -tolerance || t > 1 + tolerance || u < -tolerance || u > 1 + tolerance) return null;
+  return [p1[0] + t * rx, p1[1] + t * ry];
+}
+
+/**
  * Points where the closed segment `a`-`b` meets the given arc. Solves the
  * segment/circle quadratic, keeps the roots inside the segment, and retains only
  * those whose position also falls within the arc's angular sweep. A shared

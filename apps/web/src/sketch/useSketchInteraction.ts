@@ -104,12 +104,28 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
     [storeApi, svgRef],
   );
 
+  // Raw, un-snapped plane coordinate — the Modify tools keep continuous coordinates
+  // and resolve their own on-curve projection, so grid/object snapping never shifts a
+  // trim/split pick away from the curve under the cursor.
+  const rawAt = useCallback(
+    (clientX: number, clientY: number): Vec2 | null => {
+      const svg = svgRef.current;
+      return svg ? clientToPlane(svg, clientX, clientY) : null;
+    },
+    [svgRef],
+  );
+
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
+      const state = storeApi.getState();
+      if (state.sketch?.modify) {
+        state.setModifyPoint(rawAt(event.clientX, event.clientY));
+        return;
+      }
       const snap = snapAt(event.clientX, event.clientY, event.altKey);
-      if (snap) storeApi.getState().dispatchSketchEvent({ type: 'move', snap });
+      if (snap) state.dispatchSketchEvent({ type: 'move', snap });
     },
-    [snapAt, storeApi],
+    [rawAt, snapAt, storeApi],
   );
 
   const onClick = useCallback(
@@ -117,6 +133,12 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
       // Ignore the synthetic click that concludes a double-click sequence.
       if (event.detail > 1) return;
       const state = storeApi.getState();
+      // A Modify tool owns clicks: resolve the curve under the cursor and apply the edit.
+      if (state.sketch?.modify) {
+        const point = rawAt(event.clientX, event.clientY);
+        if (point) state.applySketchModify(point);
+        return;
+      }
       // With no drawing tool active the canvas is in selection mode: a click on
       // empty space (entity hit targets stop propagation) clears the selection.
       if (state.sketch && !state.sketch.tool) {
@@ -126,7 +148,7 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
       const snap = snapAt(event.clientX, event.clientY, event.altKey);
       if (snap) state.dispatchSketchEvent({ type: 'click', snap });
     },
-    [snapAt, storeApi],
+    [rawAt, snapAt, storeApi],
   );
 
   const onDoubleClick = useCallback(() => {
@@ -144,6 +166,12 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // A pending dimension owns Escape first (cancel without mutation); otherwise cancel the active tool step.
         if (state.sketch.dimension) {
           state.cancelDimension();
+          return;
+        }
+        // A Modify tool cancels its current preview first, then exits on a second Escape.
+        if (state.sketch.modify) {
+          if (state.sketch.modify.point) state.setModifyPoint(null);
+          else state.setSketchModifyTool(null);
           return;
         }
         state.dispatchSketchEvent({ type: 'cancel' });
@@ -169,6 +197,14 @@ export function useSketchInteraction(svgRef: RefObject<SVGSVGElement | null>) {
         // Onshape-style Distance/Dimension tool: context-sensitive on the current selection.
         event.preventDefault();
         state.startDimension();
+      } else if (key === 't') {
+        // Trim modify tool.
+        event.preventDefault();
+        state.setSketchModifyTool(state.sketch.modify?.tool === 'trim' ? null : 'trim');
+      } else if (key === 'k') {
+        // Split modify tool.
+        event.preventDefault();
+        state.setSketchModifyTool(state.sketch.modify?.tool === 'split' ? null : 'split');
       } else if (key === 'g') {
         event.preventDefault();
         state.setGridVisible(!state.gridVisible);
